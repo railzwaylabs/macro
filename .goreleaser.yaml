@@ -11,6 +11,12 @@ builds:
   - main: ./cmd/macro
     id: macro
     binary: macro
+    ldflags:
+      - >-
+        -s -w
+        -X main.version={{ .Tag }}
+        -X main.commit={{ .Commit }}
+        -X main.date={{ .Date }}
     env:
       - CGO_ENABLED=0
     goos:
