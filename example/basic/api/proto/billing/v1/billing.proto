@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package billing.v1;
+
+option go_package = "github.com/railzwaylabs/macro/example/basic/gen/billing/v1;billingv1";
+
+// BillingService demonstrates an application-owned RPC contract.
+service BillingService {
+  rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse);
+}
+
+message GetInvoiceRequest {
+  string invoice_id = 1;
+}
+
+message GetInvoiceResponse {
+  Invoice invoice = 1;
+}
+
+message Invoice {
+  string id = 1;
+  string customer_id = 2;
+  int64 amount_minor = 3;
+  string currency = 4;
+  InvoiceStatus status = 5;
+}
+
+enum InvoiceStatus {
+  INVOICE_STATUS_UNSPECIFIED = 0;
+  INVOICE_STATUS_DRAFT = 1;
+  INVOICE_STATUS_ISSUED = 2;
+  INVOICE_STATUS_PAID = 3;
+  INVOICE_STATUS_VOID = 4;
+}

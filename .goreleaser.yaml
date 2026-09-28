@@ -1,0 +1,86 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/macro
+    id: macro
+    binary: macro
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm
+      - arm64
+    goarm:
+      - 7
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: darwin
+        goarch: arm
+
+archives:
+  - id: macro
+    ids:
+      - macro
+    formats: [tar.gz]
+    name_template: >-
+      {{ .Binary }}_
+      {{- .Os }}_
+      {{- .Arch }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - none*
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+report_sizes: true
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+dockers_v2:
+  -
+    ids:
+      - macro
+    images:
+      - "ghcr.io/railzwaylabs/go-macro"
+    tags:
+      - "v{{ .Version }}"
+      - "{{ if .IsNightly }}nightly{{ end }}"
+      - "{{ if not .IsNightly }}latest{{ end }}"
+    labels:
+      "io.artifacthub.package.readme-url": "https://raw.githubusercontent.com/railzwaylabs/macro/refs/heads/main/README.md"
+      "io.artifacthub.package.logo-url": "https://www.gravatar.com/avatar/09d1da3ea9ee61753219a19016d6a672?s=120&r=g&d=404"
+      "org.opencontainers.image.description": "A Go Platform built for Developers"
+      "org.opencontainers.image.created": "{{.Date}}"
+      "org.opencontainers.image.title": "{{.ProjectName}}"
+      "org.opencontainers.image.revision": "{{.FullCommit}}"
+      "org.opencontainers.image.version": "{{.Version}}"
+      "org.opencontainers.image.source": "{{.GitURL}}"
+      "org.opencontainers.image.url": "{{.GitURL}}"
+      "org.opencontainers.image.licenses": "MIT"
+
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+    retry:
+      attempts: 5
+      delay: 5s
+      max_delay: 2m
