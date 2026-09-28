@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"errors"
 	"net"
 	"strings"
 
@@ -17,23 +16,21 @@ type Server struct {
 	listener net.Listener
 }
 
-type RegisterFunc func(*grpc.Server)
-
-func New(address string, register RegisterFunc) *Server {
+func New(address string) *Server {
 	if strings.TrimSpace(address) == "" {
 		address = DefaultAddress
 	}
 
-	srv := grpc.NewServer()
-
-	if register != nil {
-		register(srv)
-	}
-
 	return &Server{
 		address: address,
-		server:  srv,
+		server:  grpc.NewServer(),
 	}
+}
+
+// GRPC returns the underlying gRPC server for generated service registration.
+// Register services before starting the Macro service.
+func (s *Server) GRPC() *grpc.Server {
+	return s.server
 }
 
 func (s *Server) Start(context.Context) error {
@@ -45,10 +42,9 @@ func (s *Server) Start(context.Context) error {
 	s.listener = listener
 
 	go func() {
-		if err := s.server.Serve(listener); err != nil &&
-			!errors.Is(err, grpc.ErrServerStopped) {
-			// Kirim error ke service error channel/logger.
-		}
+		// Serve returns when the server is stopped. Runtime error propagation can
+		// be added to the Server contract when lifecycle supervision is needed.
+		_ = s.server.Serve(listener)
 	}()
 
 	return nil

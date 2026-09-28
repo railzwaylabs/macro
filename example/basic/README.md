@@ -69,16 +69,8 @@ invoiceRepository := memory.NewInvoiceRepository(/* seed data */)
 billingService := application.NewBillingService(invoiceRepository)
 billingHandler := grpcapi.NewBillingHandler(billingService)
 
-rpcServer := macrogrpc.New("", func(server *grpc.Server) {
-	billingv1.RegisterBillingServiceServer(server, billingHandler)
-})
-
-app := macro.New(
-	macro.Name("billing"),
-	macro.WithLogger(log),
-	macro.WithServer(rpcServer),
-	macro.WithServer(debugServer),
-)
+app := macro.NewService("billing")
+billingv1.RegisterBillingServiceServer(app.GRPC(), billingHandler)
 
 return app.Run()
 ```
@@ -98,20 +90,17 @@ PUT /log/mode
 Use a custom debug address when needed:
 
 ```go
-debugServer := debug.New(debug.Config{
-	Address: "127.0.0.1:6061",
-	Service: "billing",
-}, log)
+app := macro.NewService(
+	"billing",
+	macro.DebugAddress("127.0.0.1:6061"),
+)
 ```
 
 The application entrypoint only configures the service and calls `Run`:
 
 ```go
-app := macro.New(
-	macro.Name("billing"),
-	macro.WithLogger(log),
-	macro.WithServer(rpcServer),
-)
+app := macro.NewService("billing")
+billingv1.RegisterBillingServiceServer(app.GRPC(), billingHandler)
 
 if err := app.Run(); err != nil {
 	return err
@@ -153,19 +142,18 @@ example/basic/gen/billing/v1/
 
 ## Register the generated service
 
-The callback passed to `macrogrpc.New` is where generated protobuf services
-are registered:
+Macro creates the gRPC server. Register generated protobuf services through
+`app.GRPC()` before calling `Run`:
 
 ```go
-rpcServer := macrogrpc.New("", func(server *grpc.Server) {
-	billingv1.RegisterBillingServiceServer(server, billingHandler)
-})
+app := macro.NewService("billing")
+billingv1.RegisterBillingServiceServer(app.GRPC(), billingHandler)
 ```
 
 Pass an explicit address to override the default:
 
 ```go
-rpcServer := macrogrpc.New(":9000", registerServices)
+app := macro.NewService("billing", macro.GRPCAddress(":9000"))
 ```
 
 The application owns its protobuf contract and generated handler interfaces;
@@ -173,7 +161,8 @@ Macro owns the server lifecycle. See these files for the complete example:
 
 ```text
 internal/application/billing.go           business use case and repository port
-internal/repository/memory/invoice.go      repository adapter
+internal/infrastructure/repository/memory/invoice.go
+                                           repository adapter
 internal/transport/grpc/billing.go         protobuf/gRPC adapter
 main.go                                    dependency wiring and Macro runtime
 ```

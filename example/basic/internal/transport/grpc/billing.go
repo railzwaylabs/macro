@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 
-	billingv1 "github.com/railzwaylabs/macro/example/basic/gen/billing/v1"
-	"github.com/railzwaylabs/macro/example/basic/internal/application"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	billingv1 "github.com/railzwaylabs/macro/example/basic/gen/billing/v1"
+	"github.com/railzwaylabs/macro/example/basic/internal/application"
 )
 
 // BillingHandler adapts the protobuf transport to the application service.

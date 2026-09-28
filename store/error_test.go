@@ -4,8 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/railzwaylabs/macro/store"
 	"gorm.io/gorm"
+
+	"github.com/railzwaylabs/macro/store"
 )
 
 func TestNormalizeError(t *testing.T) {

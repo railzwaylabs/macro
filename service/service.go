@@ -9,8 +9,9 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/railzwaylabs/macro/logger"
 	"go.uber.org/zap"
+
+	"github.com/railzwaylabs/macro/logger"
 )
 
 // Service represents the lifecycle of a Macro service.

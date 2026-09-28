@@ -3,9 +3,10 @@ package macro_test
 import (
 	"testing"
 
+	"go.uber.org/zap"
+
 	"github.com/railzwaylabs/macro"
 	"github.com/railzwaylabs/macro/logger"
-	"go.uber.org/zap"
 )
 
 func TestNewFacade(t *testing.T) {
@@ -42,5 +43,41 @@ func TestNewFacade(t *testing.T) {
 	}
 	if !svc.Logger().Zap().Core().Enabled(zap.DebugLevel) {
 		t.Fatal("debug logging was not enabled through service logger")
+	}
+}
+
+func TestNewServiceProvidesRuntimeDefaults(t *testing.T) {
+	t.Parallel()
+
+	svc := macro.NewService("billing")
+
+	if got, want := svc.Name(), "billing"; got != want {
+		t.Fatalf("Name() = %q, want %q", got, want)
+	}
+	if svc.Logger() == nil {
+		t.Fatal("Logger() = nil, want default logger")
+	}
+	if svc.GRPC() == nil {
+		t.Fatal("GRPC() = nil, want default gRPC server")
+	}
+	if got, want := len(svc.Options().Servers), 2; got != want {
+		t.Fatalf("server count = %d, want %d (gRPC and debug)", got, want)
+	}
+}
+
+func TestNewServiceCanDisableDefaultServers(t *testing.T) {
+	t.Parallel()
+
+	svc := macro.NewService(
+		"worker",
+		macro.WithoutGRPC(),
+		macro.WithoutDebug(),
+	)
+
+	if svc.GRPC() != nil {
+		t.Fatal("GRPC() is non-nil with WithoutGRPC")
+	}
+	if got := len(svc.Options().Servers); got != 0 {
+		t.Fatalf("server count = %d, want 0", got)
 	}
 }

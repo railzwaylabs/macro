@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/railzwaylabs/macro/pkg/pagination"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/railzwaylabs/macro/pkg/pagination"
 )
 
 //go:generate mockgen -source=option.go -destination=mock_option.go -package=option

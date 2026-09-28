@@ -1,32 +1,297 @@
 # Macro
 
-Macro is a Go service toolkit inspired by
-[Go Micro](https://github.com/micro/go-micro). It provides a consistent way
-for Railzway services and other Go applications to assemble infrastructure,
-start servers, and manage their process lifecycle.
+[![Tests](https://github.com/railzwaylabs/macro/actions/workflows/tests.yml/badge.svg)](https://github.com/railzwaylabs/macro/actions/workflows/tests.yml)
+[![Lint](https://github.com/railzwaylabs/macro/actions/workflows/lint.yml/badge.svg)](https://github.com/railzwaylabs/macro/actions/workflows/lint.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/railzwaylabs/macro.svg)](https://pkg.go.dev/github.com/railzwaylabs/macro)
+[![Release](https://img.shields.io/github/v/release/railzwaylabs/macro?sort=semver)](https://github.com/railzwaylabs/macro/releases)
 
-Macro is intended for teams that want:
+Macro is a lightweight service toolkit for building consistent Go services.
+It provides a small runtime for composing servers, logging, diagnostics, and
+data-store infrastructure while keeping business logic owned by the
+application.
 
-- a small and uniform service bootstrap;
-- common defaults for gRPC, logging, debugging, and data stores;
-- graceful startup and shutdown managed in one place;
-- application and business logic that remains independent of the framework;
-- reusable conventions across multiple Go services.
+Macro is inspired by [Go Micro](https://github.com/micro/go-micro) and adapted
+to the conventions used by Railzway services.
 
-Applications use Macro at their executable entrypoint:
+> **Project status:** Macro is under active development. APIs may evolve before
+> the first stable release.
+
+## Overview
+
+Macro is used at the executable boundary of an application. `NewService`
+creates the standard runtime, while `Run` starts its servers, handles
+operating-system signals, and performs graceful shutdown in reverse
+registration order.
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ main.go — composition root                               │
+│                                                          │
+│ repository → application service → gRPC handler          │
+│                                      │                   │
+│                                      ▼                   │
+│                        macro.NewService(...)              │
+│                                      │                   │
+│                        register → Run                     │
+└──────────────────────────────────────────────────────────┘
+```
+
+Repositories, use cases, protobuf contracts, and transport handlers remain
+part of the application. They do not need to depend on Macro.
+
+## Features
+
+| Capability | Description |
+| --- | --- |
+| Service lifecycle | Starts multiple servers and coordinates graceful shutdown |
+| gRPC transport | Runs a standard `google.golang.org/grpc` server on `:8000` by default |
+| Structured logging | Zap-based logger with a runtime-adjustable log level |
+| Diagnostics | Internal HTTP server for pprof and log-level management |
+| Data stores | Configuration and GORM-backed connections for PostgreSQL, MySQL, and SQLite |
+| Application utilities | Shared repository, option, and pagination primitives |
+| CLI and releases | Installable `macro` CLI with cross-platform release archives |
+
+`NewService` provides useful defaults immediately:
+
+| Default | Value |
+| --- | --- |
+| Logger | Zap at `info` level |
+| gRPC address | `:8000` |
+| Debug address | `127.0.0.1:6060` |
+| Shutdown timeout | 10 seconds |
+| Signals | `SIGINT` and `SIGTERM` |
+
+## Installation
+
+### Library
+
+Add Macro to a Go application:
+
+```bash
+go get github.com/railzwaylabs/macro@latest
+```
+
+Macro currently requires Go 1.25.7 or later.
+
+### CLI
+
+Install the command-line tool with Go:
+
+```bash
+go install github.com/railzwaylabs/macro/cmd/macro@latest
+```
+
+Ensure `$(go env GOPATH)/bin` is available in `PATH`, then verify the
+installation:
+
+```bash
+macro version
+```
+
+Prebuilt archives for Linux, macOS, and Windows are published on the
+[GitHub Releases](https://github.com/railzwaylabs/macro/releases) page.
+
+## Quick start
+
+The smallest service creates its business dependencies, registers its
+generated gRPC handler, and hands lifecycle control to Macro:
 
 ```go
-app := macro.New(
-	macro.Name("billing"),
-	macro.WithLogger(log),
-	macro.WithServer(rpcServer),
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/railzwaylabs/macro"
+	billingv1 "your-service/gen/billing/v1"
 )
 
+func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	// Construct repository, application service, and transport handler here.
+	billingHandler := newBillingHandler()
+
+	// Macro creates the logger, gRPC server, diagnostics, and lifecycle.
+	app := macro.NewService("billing")
+
+	// This is the standard registration function generated by protoc-gen-go-grpc.
+	billingv1.RegisterBillingServiceServer(app.GRPC(), billingHandler)
+
+	return app.Run()
+}
+```
+
+Run the application and stop it with `Ctrl+C`:
+
+```bash
+go run .
+```
+
+`Run` handles `SIGINT` and `SIGTERM`, then gives each server up to ten seconds
+to stop gracefully. Override the timeout when necessary:
+
+```go
+app := macro.NewService(
+	"billing",
+	macro.ShutdownTimeout(30*time.Second),
+)
+```
+
+## Writing an application service
+
+Business rules belong in the application layer rather than a repository or
+transport handler. Define the infrastructure dependency as an
+application-owned interface:
+
+```go
+type InvoiceRepository interface {
+	FindByID(context.Context, string) (*Invoice, error)
+}
+
+type BillingService struct {
+	invoices InvoiceRepository
+}
+
+func (s *BillingService) GetInvoice(
+	ctx context.Context,
+	invoiceID string,
+) (*Invoice, error) {
+	return s.invoices.FindByID(ctx, invoiceID)
+}
+```
+
+A gRPC handler adapts protobuf input to that use case. A PostgreSQL, MySQL,
+SQLite, or in-memory repository implements the interface. Only `main.go` knows
+about all concrete implementations.
+
+Recommended project structure:
+
+```text
+cmd/service/main.go                 composition root and Macro lifecycle
+api/proto/                         RPC contracts
+internal/application/              use cases and business rules
+internal/repository/               database adapters
+internal/transport/grpc/           protobuf/gRPC handlers
+```
+
+## gRPC
+
+Macro creates a standard gRPC server by default. Register generated protobuf
+handlers through `Service.GRPC()` before calling `Run`:
+
+```go
+app := macro.NewService("billing")
+billingv1.RegisterBillingServiceServer(app.GRPC(), billingHandler)
 return app.Run()
 ```
 
-Repositories, application services, and transport handlers remain owned by
-the application. Macro only wires shared capabilities and manages their
-lifecycle.
+The default address is `:8000`. Override it with an option:
 
-See [`example/basic`](./example/basic) for a complete gRPC service example.
+```go
+app := macro.NewService("billing", macro.GRPCAddress(":9000"))
+```
+
+Applications own their `.proto` contracts and generated Go code. Macro owns
+the gRPC server lifecycle. Applications do not need to construct or start a
+`grpc.Server` themselves.
+
+`GRPC()` returns the native `*grpc.Server`, so reflection, health services,
+and other standard gRPC integrations can be registered normally. It returns
+`nil` only when `macro.WithoutGRPC()` is configured.
+
+## Configuration
+
+Macro follows an option-based API:
+
+| Option | Purpose |
+| --- | --- |
+| `macro.GRPCAddress(address)` | Override the default `:8000` listener |
+| `macro.DebugAddress(address)` | Override the default management listener |
+| `macro.ShutdownTimeout(duration)` | Set the graceful-shutdown deadline |
+| `macro.WithLogger(logger)` | Replace the default Zap logger |
+| `macro.WithServer(server)` | Add another lifecycle-managed server |
+| `macro.WithoutGRPC()` | Disable the default gRPC server |
+| `macro.WithoutDebug()` | Disable the default diagnostics server |
+
+## Diagnostics
+
+The debug server is enabled by default, listens on `127.0.0.1:6060`, and
+exposes:
+
+```text
+GET /debug/pprof/
+GET /log/mode
+PUT /log/mode
+```
+
+Read or change the active log level without restarting the service:
+
+```bash
+curl http://127.0.0.1:6060/log/mode
+
+curl -X PUT \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"debug"}' \
+  http://127.0.0.1:6060/log/mode
+```
+
+The management listener defaults to loopback so it is not exposed publicly.
+Protect it appropriately when using a different address.
+
+Customize or disable default servers through options:
+
+```go
+app := macro.NewService(
+	"billing",
+	macro.GRPCAddress(":9000"),
+	macro.DebugAddress("127.0.0.1:6061"),
+)
+
+worker := macro.NewService(
+	"invoice-worker",
+	macro.WithoutGRPC(),
+	macro.WithoutDebug(),
+)
+```
+
+## Examples
+
+[`example/basic`](./example/basic) contains a runnable billing service with:
+
+- a protobuf contract and generated gRPC code;
+- an application service;
+- an in-memory repository adapter;
+- a gRPC transport handler;
+- structured logging and diagnostics;
+- complete dependency wiring in `main.go`.
+
+Run it from the repository root:
+
+```bash
+go run ./example/basic
+```
+
+## Development
+
+Run the tests and static analysis before submitting a change:
+
+```bash
+go test ./...
+golangci-lint run ./...
+```
+
+Build the CLI locally:
+
+```bash
+go build ./cmd/macro
+```
+
+Releases are produced by GoReleaser when a `v*` tag is pushed. The release
+workflow publishes native CLI archives for each supported platform.

@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	macrologger "github.com/railzwaylabs/macro/logger"
 	"go.uber.org/zap"
+
+	macrologger "github.com/railzwaylabs/macro/logger"
 )
 
 func TestHandlerChangesMode(t *testing.T) {

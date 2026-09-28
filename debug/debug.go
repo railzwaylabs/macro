@@ -11,8 +11,9 @@ import (
 	"strings"
 	"sync"
 
-	macrologger "github.com/railzwaylabs/macro/logger"
 	"go.uber.org/zap"
+
+	macrologger "github.com/railzwaylabs/macro/logger"
 )
 
 const DefaultAddress = "127.0.0.1:6060"
