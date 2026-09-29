@@ -39,17 +39,17 @@ Ensure `$(go env GOPATH)/bin` is in `PATH`, then create a workspace and two
 projects:
 
 ```bash
-macro workspace init loyalty
-cd loyalty
+macro workspace init commerce
+cd commerce
 
-macro init corepoint --type service
-macro init close-cycle --type job
+macro init billing-api --type service
+macro init daily-report --type job
 ```
 
 Run the generated service:
 
 ```bash
-cd corepoint
+cd billing-api
 go mod tidy
 go run ./cmd/service
 ```
@@ -60,7 +60,7 @@ The service listens for gRPC traffic on `:8000` and exposes diagnostics on
 The generated job is finite and exits after its work completes:
 
 ```bash
-cd ../close-cycle
+cd ../daily-report
 go run ./cmd/job
 ```
 
@@ -134,7 +134,7 @@ Create a project. `service` is the default type:
 ```bash
 macro init billing
 macro init rating-worker --type worker
-macro init close-cycle --type job
+macro init daily-report --type job
 ```
 
 Use `--module` when the Go module path differs from the project name:
@@ -161,10 +161,10 @@ manifest types have separate responsibilities:
   not duplicate project metadata.
 
 ```yaml
-name: loyalty
+name: commerce
 projects:
-  - path: ./corepoint
-  - path: ./close-cycle
+  - path: ./billing-api
+  - path: ./daily-report
 ```
 
 Use the built-in help for flags and validation rules:
