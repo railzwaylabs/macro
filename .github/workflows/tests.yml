@@ -40,4 +40,4 @@ jobs:
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
       - name: Build executables
-        run: go build ./cmd/macro ./example/basic
+        run: go build ./cmd/macro
