@@ -1,0 +1,14 @@
+# {{ .Name }}
+
+Macro workspace for coordinating multiple projects.
+
+```bash
+macro init billing --type service
+macro init rating-worker --type worker
+macro init daily-report --type job
+macro workspace list
+macro workspace add ../catalog
+```
+
+`macro.workspace.yaml` defines workspace membership. Each project's
+`macro.yaml` is the source of truth for its metadata.

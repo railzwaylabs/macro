@@ -1,22 +1,28 @@
 package workspace
 
 import (
+	"bytes"
+	"embed"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/template"
 
 	"github.com/railzwaylabs/macro/internal/project"
 )
 
 var ErrAlreadyRegistered = errors.New("project already registered")
 
+//go:embed templates
+var templateFiles embed.FS
+
 type Entry struct {
-	Name string
-	Type project.Type
-	Path string
+	Name string       `json:"name"`
+	Type project.Type `json:"type"`
+	Path string       `json:"path"`
 }
 
 type Registration struct {
@@ -54,8 +60,33 @@ func Init(parent, name string) (destination string, returnErr error) {
 	if err := write(filepath.Join(createdDirectory, ManifestName), manifest); err != nil {
 		return "", fmt.Errorf("create workspace manifest in %s: %w", createdDirectory, err)
 	}
+	for _, file := range []struct{ source, target string }{
+		{"templates/README.md.tmpl", "README.md"},
+		{"templates/Makefile.tmpl", "Makefile"},
+		{"templates/gitignore.tmpl", ".gitignore"},
+	} {
+		if err := renderWorkspaceFile(createdDirectory, file.source, file.target, struct{ Name string }{name}); err != nil {
+			return "", err
+		}
+	}
 
 	return createdDirectory, nil
+}
+
+func renderWorkspaceFile(directory, source, target string, data any) error {
+	parsed, err := template.ParseFS(templateFiles, source)
+	if err != nil {
+		return fmt.Errorf("parse workspace template %s: %w", source, err)
+	}
+	var output bytes.Buffer
+	if err := parsed.Execute(&output, data); err != nil {
+		return fmt.Errorf("render workspace template %s: %w", source, err)
+	}
+	path := filepath.Join(directory, target)
+	if err := os.WriteFile(path, output.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("write workspace file %s: %w", path, err)
+	}
+	return nil
 }
 
 func Add(workspaceDirectory, projectPath string) (Registration, error) {

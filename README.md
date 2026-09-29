@@ -50,9 +50,13 @@ Run the generated service:
 
 ```bash
 cd billing-api
-go mod tidy
-go run ./cmd/service
+make run
 ```
+
+Service initialization creates a minimal protobuf service contract and Buf v2
+configuration, runs `buf generate` when Buf is installed, then resolves Go
+modules. If Buf is unavailable, Macro keeps the project and prints the exact
+commands needed to finish generation.
 
 The service listens for gRPC traffic on `:8000` and exposes diagnostics on
 `127.0.0.1:6060`. Stop it with `Ctrl+C`.
@@ -74,9 +78,10 @@ go run ./cmd/job
 | Structured logging | Uses Zap with a runtime-adjustable log level |
 | Diagnostics | Serves pprof and log-level management on a loopback listener |
 | Data-store setup | Configures GORM connections for PostgreSQL, MySQL, and SQLite |
-| Project scaffolding | Generates runnable projects with Git and golangci-lint defaults |
+| Project scaffolding | Generates runnable projects with Make, Docker, Git, and golangci-lint defaults |
+| Module scaffolding | Creates compile-safe application/transport boundaries and an empty migration pair |
 | Workspace management | Tracks related projects using normalized relative paths |
-| Deployment-ready layout | Generates a Dockerfile and Kubernetes/Nomad directories |
+| Container builds | Generates a Dockerfile; Kubernetes and Nomad manifests are not scaffolded |
 
 ## Workload Types
 
@@ -143,6 +148,29 @@ Use `--module` when the Go module path differs from the project name:
 macro init billing --module github.com/example/billing
 ```
 
+Inside a generated project, add an application module:
+
+```bash
+cd billing
+macro add module invoice
+```
+
+This creates intentionally minimal package boundaries:
+
+```text
+internal/invoice/
+├── application/service.go
+└── transport/grpc/handler.go
+
+migrations/
+├── <timestamp>_invoice.up.sql
+└── <timestamp>_invoice.down.sql
+```
+
+The Go files provide only empty `Service`/`Handler` types and constructors.
+The migrations contain comments only. Macro does not infer domain models,
+repository methods, schemas, or RPC behavior from a module name.
+
 Create and inspect a workspace, or add an existing Macro project:
 
 ```bash
@@ -172,8 +200,37 @@ Use the built-in help for flags and validation rules:
 ```bash
 macro --help
 macro init --help
+macro add module --help
 macro workspace --help
 ```
+
+Preview mutating commands without creating files, running external tools, or
+changing workspace membership:
+
+```bash
+macro init billing --type service --dry-run
+macro add module invoice --dry-run
+```
+
+Check the local toolchain and current project/workspace context:
+
+```bash
+macro doctor
+```
+
+Workspace listings support stable JSON output for scripts:
+
+```bash
+macro workspace list --format json
+```
+
+Generate shell completion without modifying shell configuration:
+
+```bash
+macro completion zsh > _macro
+```
+
+Run `macro --help` for canonical command discovery.
 
 ## Application Boundaries
 
@@ -195,7 +252,7 @@ Application code should own:
 - domain rules and use cases;
 - repository interfaces;
 - database and messaging adapters;
-- protobuf contracts and generated code;
+- the meaning and evolution of protobuf contracts and generated code;
 - transport handlers.
 
 Macro does not need to appear in the domain layer. This layout works with DDD,
@@ -236,8 +293,15 @@ func main() {
 
 ## gRPC
 
-Applications own protobuf contracts and generated Go code. Macro owns the
-gRPC server lifecycle.
+Applications own protobuf contract behavior and generated Go code. For service
+projects, the CLI supplies an empty initial service contract plus Buf
+configuration; Macro owns the gRPC server lifecycle.
+
+```bash
+make proto
+```
+
+Workers and jobs do not receive protobuf or Buf files by default.
 
 Register generated handlers before calling `Run`:
 
@@ -313,21 +377,11 @@ Macro currently requires Go 1.25.7 or later. Prebuilt CLI archives for Linux,
 macOS, and Windows are available from
 [GitHub Releases](https://github.com/railzwaylabs/macro/releases).
 
-## Examples
+## Generated Projects
 
-[`example/basic`](./example/basic) is a runnable billing service containing a
-protobuf contract, generated gRPC code, an application service, an in-memory
-repository adapter, a gRPC handler, logging, diagnostics, and complete wiring.
-
-Run it from the repository root:
-
-```bash
-go run ./example/basic
-```
-
-The CLI-generated service, worker, and job projects are also independently
-runnable and testable. Each project includes a generated README; workers also
-include a Makefile with run, test, build, lint, and Docker targets.
+The CLI-generated service, worker, and job projects are independently runnable
+and testable. Every project includes a README and Makefile with run, test,
+build, lint, and Docker targets; services additionally include `proto`.
 
 ## Development
 

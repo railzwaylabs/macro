@@ -59,13 +59,14 @@ func TestRootCommandShowsHelp(t *testing.T) {
 	}
 	got := stdout.String()
 	for _, want := range []string{
-		"A toolkit for scaffolding consistent Go services, workers, and jobs",
+		"Macro is a Go workload toolkit and CLI.",
 		"macro init billing",
+		"macro add module invoice",
 		"macro workspace init commerce",
 		"Usage:",
-		"Common Commands:",
-		"Management Commands:",
-		"Commands:",
+		"Core Commands:",
+		"Utility Commands:",
+		"Additional Commands:",
 	} {
 		if !bytes.Contains([]byte(got), []byte(want)) {
 			t.Errorf("help output does not contain %q: %q", want, got)

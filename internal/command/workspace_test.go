@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +49,34 @@ func TestWorkspaceCommands(t *testing.T) {
 		if !strings.Contains(output, value) {
 			t.Errorf("workspace list missing %q: %q", value, output)
 		}
+	}
+
+	stdout.Reset()
+	cmd = New(&stdout, &bytes.Buffer{}, BuildInfo{})
+	cmd.SetArgs([]string{"workspace", "list", "--paths"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("workspace list --paths: %v", err)
+	}
+	if got := strings.TrimSpace(stdout.String()); got != "../catalog" {
+		t.Fatalf("workspace paths = %q", got)
+	}
+
+	stdout.Reset()
+	cmd = New(&stdout, &bytes.Buffer{}, BuildInfo{})
+	cmd.SetArgs([]string{"workspace", "list", "--format", "json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("workspace list json: %v", err)
+	}
+	var jsonEntries []struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &jsonEntries); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, stdout.String())
+	}
+	if len(jsonEntries) != 1 || jsonEntries[0].Name != "catalog" || jsonEntries[0].Type != "service" {
+		t.Fatalf("JSON entries = %#v", jsonEntries)
 	}
 
 	if _, err := os.Stat(filepath.Join(commerce, "macro.workspace.yaml")); err != nil {
