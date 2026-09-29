@@ -1,6 +1,7 @@
 package command
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +14,7 @@ import (
 	"github.com/railzwaylabs/macro/internal/workspace"
 )
 
-func newWorkspaceCommand() *cobra.Command {
+func newWorkspaceCommand(cli *cliOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workspace",
 		Short: "Manage a collection of Macro projects",
@@ -29,9 +30,9 @@ Macro searches the current directory and its parents for the workspace.`,
 		},
 	}
 	cmd.AddGroup(&cobra.Group{ID: "commands", Title: "Commands:"})
-	initCommand := newWorkspaceInitCommand()
+	initCommand := newWorkspaceInitCommand(cli)
 	initCommand.GroupID = "commands"
-	addCommand := newWorkspaceAddCommand()
+	addCommand := newWorkspaceAddCommand(cli)
 	addCommand.GroupID = "commands"
 	listCommand := newWorkspaceListCommand()
 	listCommand.GroupID = "commands"
@@ -39,7 +40,7 @@ Macro searches the current directory and its parents for the workspace.`,
 	return cmd
 }
 
-func newWorkspaceInitCommand() *cobra.Command {
+func newWorkspaceInitCommand(cli *cliOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "init <name>",
 		Short: "Create a new Macro workspace",
@@ -56,12 +57,15 @@ Projects created beneath this directory are registered automatically.`,
 				return fmt.Errorf("get current directory: %w", err)
 			}
 
-			return initializeWorkspace(cmd.OutOrStdout(), cwd, args[0])
+			return initializeWorkspace(cmd.OutOrStdout(), cwd, args[0], cli.quiet)
 		},
 	}
 }
 
-func initializeWorkspace(output io.Writer, parent, name string) error {
+func initializeWorkspace(output io.Writer, parent, name string, quiet bool) error {
+	if quiet {
+		output = io.Discard
+	}
 	status := ui.NewStatus(output)
 	createStep := ui.Step{
 		Start:   fmt.Sprintf("Creating workspace %q", name),
@@ -80,7 +84,7 @@ func initializeWorkspace(output io.Writer, parent, name string) error {
 	return status.Success("Created " + workspace.ManifestName)
 }
 
-func newWorkspaceAddCommand() *cobra.Command {
+func newWorkspaceAddCommand(cli *cliOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "add <path>",
 		Short: "Add an existing project to the nearest workspace",
@@ -90,6 +94,9 @@ The path is stored relative to the workspace directory.`,
 		Example: `  macro workspace add ./billing
   macro workspace add ../catalog`,
 		Args: cobra.ExactArgs(1),
+		ValidArgsFunction: func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+			return nil, cobra.ShellCompDirectiveFilterDirs
+		},
 		RunE: func(cmd *cobra.Command, arguments []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -103,13 +110,21 @@ The path is stored relative to the workspace directory.`,
 
 			registration, err := workspace.Add(workspaceDirectory, arguments[0])
 			if err != nil {
-				status := ui.NewStatus(cmd.OutOrStdout())
+				statusOutput := cmd.OutOrStdout()
+				if cli.quiet {
+					statusOutput = io.Discard
+				}
+				status := ui.NewStatus(statusOutput)
 				operationErr := fmt.Errorf("add project: %w", err)
 				renderErr := status.Failure("Failed to add project to workspace")
 				return errors.Join(operationErr, renderErr)
 			}
 
-			status := ui.NewStatus(cmd.OutOrStdout())
+			statusOutput := cmd.OutOrStdout()
+			if cli.quiet {
+				statusOutput = io.Discard
+			}
+			status := ui.NewStatus(statusOutput)
 			message := fmt.Sprintf("Added %s to workspace %s", registration.ProjectName, registration.WorkspaceName)
 			return status.Success(message)
 		},
@@ -117,7 +132,9 @@ The path is stored relative to the workspace directory.`,
 }
 
 func newWorkspaceListCommand() *cobra.Command {
-	return &cobra.Command{
+	var pathsOnly bool
+	var format string
+	command := &cobra.Command{
 		Use:   "list",
 		Short: "List projects in the nearest workspace",
 		Long: `List registered projects using metadata from each project's macro.yaml.
@@ -136,8 +153,23 @@ Macro reports missing or malformed project manifests as workspace errors.`,
 			}
 
 			entries, listErr := workspace.List(workspaceDirectory)
-			if err := renderWorkspaceProjects(cmd.OutOrStdout(), entries); err != nil {
-				return err
+			if pathsOnly {
+				if err := renderWorkspacePaths(cmd.OutOrStdout(), entries); err != nil {
+					return err
+				}
+			} else {
+				switch format {
+				case "table":
+					if err := renderWorkspaceProjects(cmd.OutOrStdout(), entries); err != nil {
+						return err
+					}
+				case "json":
+					if err := renderWorkspaceJSON(cmd.OutOrStdout(), entries); err != nil {
+						return err
+					}
+				default:
+					return fmt.Errorf("unsupported format %q: use table or json", format)
+				}
 			}
 			if listErr != nil {
 				return fmt.Errorf("workspace is inconsistent: %w", listErr)
@@ -145,6 +177,24 @@ Macro reports missing or malformed project manifests as workspace errors.`,
 			return nil
 		},
 	}
+	command.Flags().BoolVar(&pathsOnly, "paths", false, "print project paths only")
+	command.Flags().StringVar(&format, "format", "table", "output format (table or json)")
+	return command
+}
+
+func renderWorkspaceJSON(output io.Writer, entries []workspace.Entry) error {
+	encoder := json.NewEncoder(output)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(entries)
+}
+
+func renderWorkspacePaths(output io.Writer, entries []workspace.Entry) error {
+	for _, entry := range entries {
+		if _, err := fmt.Fprintln(output, entry.Path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func renderWorkspaceProjects(output io.Writer, entries []workspace.Entry) error {

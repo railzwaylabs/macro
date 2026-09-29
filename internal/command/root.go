@@ -5,10 +5,12 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+
+	"github.com/railzwaylabs/macro/internal/project"
 )
 
 const usageTemplate = `Usage:{{if eq .CommandPath "macro"}}
-  macro [OPTIONS] COMMAND{{else}}{{if .Runnable}}
+  macro <command> [flags]{{else}}{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{end}}{{if gt (len .Aliases) 0}}
 
@@ -43,6 +45,11 @@ type BuildInfo struct {
 	Date    string
 }
 
+type cliOptions struct {
+	dryRun bool
+	quiet  bool
+}
+
 // String returns the human-readable CLI build information.
 func (i BuildInfo) String() string {
 	return fmt.Sprintf(
@@ -55,11 +62,17 @@ func (i BuildInfo) String() string {
 
 // New creates the root macro command.
 func New(out, errOut io.Writer, info BuildInfo) *cobra.Command {
+	return newRootCommand(out, errOut, info, project.ExecRunner{})
+}
+
+func newRootCommand(out, errOut io.Writer, info BuildInfo, runner project.CommandRunner) *cobra.Command {
+	options := &cliOptions{}
 	cmd := &cobra.Command{
-		Use:   "macro [OPTIONS] COMMAND",
+		Use:   "macro <command> [flags]",
 		Short: "Build consistent Go services, workers, and jobs",
-		Long:  "A toolkit for scaffolding consistent Go services, workers, and jobs",
+		Long:  "Macro is a Go workload toolkit and CLI.",
 		Example: `  macro init billing
+  macro add module invoice
   macro init notifications --type worker
   macro workspace init commerce
   macro workspace list`,
@@ -78,20 +91,27 @@ func New(out, errOut io.Writer, info BuildInfo) *cobra.Command {
 	cmd.SetVersionTemplate("{{.Version}}\n")
 	cmd.SetHelpCommandGroupID("additional")
 	cmd.SetCompletionCommandGroupID("additional")
+	cmd.PersistentFlags().BoolVar(&options.quiet, "quiet", false, "suppress progress output")
 	cmd.AddGroup(
-		&cobra.Group{ID: "common", Title: "Common Commands:"},
-		&cobra.Group{ID: "management", Title: "Management Commands:"},
-		&cobra.Group{ID: "additional", Title: "Commands:"},
+		&cobra.Group{ID: "core", Title: "Core Commands:"},
+		&cobra.Group{ID: "utility", Title: "Utility Commands:"},
+		&cobra.Group{ID: "additional", Title: "Additional Commands:"},
 	)
 
-	initCommand := newInitCommand()
-	initCommand.GroupID = "common"
+	initCommand := newInitCommand(runner, options)
+	initCommand.GroupID = "core"
+	addCommand := newAddCommand(options)
+	addCommand.GroupID = "core"
 	versionCommand := newVersionCommand(info)
-	versionCommand.GroupID = "common"
-	workspaceCommand := newWorkspaceCommand()
-	workspaceCommand.GroupID = "management"
+	versionCommand.GroupID = "utility"
+	workspaceCommand := newWorkspaceCommand(options)
+	workspaceCommand.GroupID = "core"
+	completionCommand := newCompletionCommand()
+	completionCommand.GroupID = "utility"
+	doctorCommand := newDoctorCommand(osEnvironmentChecker{})
+	doctorCommand.GroupID = "utility"
 
-	cmd.AddCommand(initCommand, versionCommand, workspaceCommand)
+	cmd.AddCommand(initCommand, addCommand, workspaceCommand, doctorCommand, completionCommand, versionCommand)
 
 	return cmd
 }

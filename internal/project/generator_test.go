@@ -41,24 +41,28 @@ func TestGenerateLayouts(t *testing.T) {
 				"internal",
 				"tests",
 				"Dockerfile",
+				"Makefile",
 				"README.md",
 				".gitignore",
-				".golangci.yml",
-				filepath.Join("deploy", "kubernetes"),
-				filepath.Join("deploy", "nomad"),
+				".golangci.yaml",
 			} {
 				if _, err := os.Stat(filepath.Join(result.Directory, path)); err != nil {
 					t.Errorf("required path %s: %v", path, err)
 				}
 			}
 			_, migrationErr := os.Stat(filepath.Join(result.Directory, "migrations"))
-			_, protoErr := os.Stat(filepath.Join(result.Directory, "api", "proto"))
+			_, protoErr := os.Stat(filepath.Join(result.Directory, "api", "proto", "billing", "v1", "billing.proto"))
 			if test.wantServiceDB {
 				if migrationErr != nil || protoErr != nil {
 					t.Fatalf("service directories: migrations=%v proto=%v", migrationErr, protoErr)
 				}
 			} else if !os.IsNotExist(migrationErr) || !os.IsNotExist(protoErr) {
 				t.Fatalf("non-service unexpectedly has service directories")
+			}
+			for _, deployment := range []string{filepath.Join("deploy", "kubernetes"), filepath.Join("deploy", "nomad")} {
+				if _, err := os.Stat(filepath.Join(result.Directory, deployment)); !os.IsNotExist(err) {
+					t.Errorf("unexpected deployment placeholder %s", deployment)
+				}
 			}
 		})
 	}
@@ -75,11 +79,54 @@ func TestGenerateUsesProjectModuleInLintConfiguration(t *testing.T) {
 		t.Fatalf("Generate() error = %v", err)
 	}
 
-	lintConfig := filepath.Join(generated.Directory, ".golangci.yml")
+	lintConfig := filepath.Join(generated.Directory, ".golangci.yaml")
 	assertFileContains(t, lintConfig, "- example.com/commerce/billing")
 
 	gitignore := filepath.Join(generated.Directory, ".gitignore")
 	assertFileContains(t, gitignore, "/bin/", "/dist/", ".env", ".DS_Store")
+}
+
+func TestGenerateServiceProtoAndBufConfiguration(t *testing.T) {
+	generated, err := Generate(GenerateOptions{
+		Parent: t.TempDir(), Name: "billing-api", Type: TypeService,
+		ModulePath: "example.com/commerce/billing-api",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proto := filepath.Join(generated.Directory, "api", "proto", "billing_api", "v1", "billing_api.proto")
+	assertFileContains(t, proto,
+		`syntax = "proto3";`,
+		"package billing_api.v1;",
+		`option go_package = "example.com/commerce/billing-api/gen/billing_api/v1;billingapiv1";`,
+		"service BillingApiService {}",
+	)
+	contents, err := os.ReadFile(proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(contents), "rpc ") {
+		t.Fatal("initial proto contains business RPC methods")
+	}
+	assertFileContains(t, filepath.Join(generated.Directory, "buf.yaml"), "version: v2", "path: api/proto")
+	assertFileContains(t, filepath.Join(generated.Directory, "buf.gen.yaml"), "buf.build/protocolbuffers/go", "buf.build/grpc/go")
+	assertFileContains(t, filepath.Join(generated.Directory, "Makefile"), "proto:", "buf generate")
+
+	macroRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGoCommand(t, generated.Directory, "mod", "edit", "-replace=github.com/railzwaylabs/macro="+macroRoot)
+	runGoCommand(t, generated.Directory, "mod", "tidy")
+	runGoCommand(t, generated.Directory, "test", "./...")
+	runGoCommand(t, generated.Directory, "build", "./...")
+}
+
+func TestManifestDeploymentMatchesGeneratedFiles(t *testing.T) {
+	manifest := NewManifest("billing", TypeService)
+	if !manifest.Deployment.Docker || manifest.Deployment.Kubernetes || manifest.Deployment.Nomad {
+		t.Fatalf("deployment = %#v", manifest.Deployment)
+	}
 }
 
 func TestGenerateRejectsExistingDestination(t *testing.T) {

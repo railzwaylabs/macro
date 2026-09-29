@@ -1,10 +1,15 @@
 package main
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"os"
+)
 
 func main() {
 	if err := run(context.Background()); err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
 

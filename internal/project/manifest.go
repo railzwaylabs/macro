@@ -62,8 +62,8 @@ func NewManifest(name string, kind Type) Manifest {
 		Modules: map[string]Module{},
 		Deployment: Deployment{
 			Docker:     true,
-			Kubernetes: true,
-			Nomad:      true,
+			Kubernetes: false,
+			Nomad:      false,
 		},
 	}
 	if kind == TypeService {

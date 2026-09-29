@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"text/template"
 )
 
@@ -14,9 +15,12 @@ import (
 var templateFiles embed.FS
 
 type TemplateData struct {
-	Name       string
-	Type       string
-	ModulePath string
+	Name             string
+	Type             string
+	ModulePath       string
+	ProtoName        string
+	ProtoGoPackage   string
+	ProtoServiceName string
 }
 
 type GenerateOptions struct {
@@ -29,6 +33,38 @@ type GenerateOptions struct {
 type Result struct {
 	Directory    string
 	ManifestPath string
+}
+
+type Plan struct {
+	Directory   string
+	CreateFiles []string
+	Commands    []string
+}
+
+func BuildPlan(options GenerateOptions) (Plan, error) {
+	options, err := prepareOptions(options)
+	if err != nil {
+		return Plan{}, err
+	}
+	destination := filepath.Join(options.Parent, options.Name)
+	if err := validateDestination(destination); err != nil {
+		return Plan{}, err
+	}
+	data := TemplateData{
+		Name: options.Name, Type: string(options.Type), ModulePath: options.ModulePath,
+		ProtoName: normalizeProtoName(options.Name), ProtoGoPackage: normalizeProtoGoPackage(options.Name), ProtoServiceName: normalizeProtoServiceName(options.Name),
+	}
+	files := make([]string, 0)
+	for _, generatedFile := range templatesFor(options.Type, data) {
+		files = append(files, filepath.ToSlash(generatedFile.target))
+	}
+	files = append(files, ManifestName)
+	sort.Strings(files)
+	commands := []string{"go mod tidy"}
+	if options.Type == TypeService {
+		commands = append([]string{"buf generate"}, commands...)
+	}
+	return Plan{Directory: destination, CreateFiles: files, Commands: commands}, nil
 }
 
 type fileTemplate struct {
@@ -107,11 +143,14 @@ func populateProject(destination string, options GenerateOptions) error {
 	}
 
 	templateData := TemplateData{
-		Name:       options.Name,
-		Type:       string(options.Type),
-		ModulePath: options.ModulePath,
+		Name:             options.Name,
+		Type:             string(options.Type),
+		ModulePath:       options.ModulePath,
+		ProtoName:        normalizeProtoName(options.Name),
+		ProtoGoPackage:   normalizeProtoGoPackage(options.Name),
+		ProtoServiceName: normalizeProtoServiceName(options.Name),
 	}
-	for _, target := range templatesFor(options.Type) {
+	for _, target := range templatesFor(options.Type, templateData) {
 		if err := renderFile(destination, target, templateData); err != nil {
 			return err
 		}
@@ -129,8 +168,6 @@ func createDirectories(destination string, kind Type) error {
 	directories := []string{
 		"internal",
 		"tests",
-		filepath.Join("deploy", "kubernetes"),
-		filepath.Join("deploy", "nomad"),
 	}
 
 	if kind == TypeService {
@@ -146,12 +183,12 @@ func createDirectories(destination string, kind Type) error {
 	return nil
 }
 
-func templatesFor(kind Type) []fileTemplate {
+func templatesFor(kind Type, data TemplateData) []fileTemplate {
 	common := []fileTemplate{
 		{source: "templates/common/go.mod.tmpl", target: "go.mod"},
 		{source: "templates/common/Dockerfile.tmpl", target: "Dockerfile"},
 		{source: "templates/common/gitignore.tmpl", target: ".gitignore"},
-		{source: "templates/common/golangci.yml.tmpl", target: ".golangci.yml"},
+		{source: "templates/common/golangci.yaml.tmpl", target: ".golangci.yaml"},
 	}
 	if kind != TypeWorker {
 		common = append(common, fileTemplate{source: "templates/common/README.md.tmpl", target: "README.md"})
@@ -159,11 +196,14 @@ func templatesFor(kind Type) []fileTemplate {
 
 	switch kind {
 	case TypeService:
-		mainFile := fileTemplate{
-			source: "templates/service/main.go.tmpl",
-			target: filepath.Join("cmd", "service", "main.go"),
+		serviceFiles := []fileTemplate{
+			{source: "templates/service/main.go.tmpl", target: filepath.Join("cmd", "service", "main.go")},
+			{source: "templates/service/Makefile.tmpl", target: "Makefile"},
+			{source: "templates/service/buf.yaml.tmpl", target: "buf.yaml"},
+			{source: "templates/service/buf.gen.yaml.tmpl", target: "buf.gen.yaml"},
+			{source: "templates/service/service.proto.tmpl", target: filepath.Join("api", "proto", data.ProtoName, "v1", data.ProtoName+".proto")},
 		}
-		return append(common, mainFile)
+		return append(common, serviceFiles...)
 	case TypeWorker:
 		workerFiles := []fileTemplate{
 			{
@@ -189,11 +229,11 @@ func templatesFor(kind Type) []fileTemplate {
 		}
 		return append(common, workerFiles...)
 	case TypeJob:
-		mainFile := fileTemplate{
-			source: "templates/job/main.go.tmpl",
-			target: filepath.Join("cmd", "job", "main.go"),
+		jobFiles := []fileTemplate{
+			{source: "templates/job/main.go.tmpl", target: filepath.Join("cmd", "job", "main.go")},
+			{source: "templates/job/Makefile.tmpl", target: "Makefile"},
 		}
-		return append(common, mainFile)
+		return append(common, jobFiles...)
 	default:
 		return common
 	}

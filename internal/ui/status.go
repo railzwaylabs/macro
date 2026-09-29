@@ -61,6 +61,11 @@ func (status Status) Failure(message string) error {
 	return err
 }
 
+func (status Status) Warning(message string) error {
+	_, err := fmt.Fprintf(status.output, "! %s\n", message)
+	return err
+}
+
 func (status Status) finish(symbol, message string) error {
 	if status.interactive {
 		if _, err := fmt.Fprint(status.output, "\r\x1b[2K"); err != nil {

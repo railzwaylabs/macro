@@ -22,6 +22,16 @@ func TestInitCreatesValidWorkspace(t *testing.T) {
 	if manifest.Name != "commerce" || len(manifest.Projects) != 0 {
 		t.Fatalf("manifest = %#v", manifest)
 	}
+	for _, path := range []string{"README.md", "Makefile", ".gitignore", ManifestName} {
+		if _, err := os.Stat(filepath.Join(directory, path)); err != nil {
+			t.Errorf("workspace file %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{"go.mod", "Dockerfile", "cmd", "internal"} {
+		if _, err := os.Stat(filepath.Join(directory, path)); !os.IsNotExist(err) {
+			t.Errorf("workspace unexpectedly contains %s", path)
+		}
+	}
 	if _, err := Init(parent, "commerce"); err == nil {
 		t.Fatal("second Init() error = nil")
 	}

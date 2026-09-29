@@ -1,0 +1,12 @@
+.PHONY: test lint build
+
+PROJECTS := $(shell macro workspace list --paths)
+
+test:
+	@for project in $(PROJECTS); do (cd $$project && go test ./...); done
+
+lint:
+	@for project in $(PROJECTS); do (cd $$project && golangci-lint run); done
+
+build:
+	@for project in $(PROJECTS); do (cd $$project && go build ./...); done

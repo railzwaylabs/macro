@@ -1,0 +1,16 @@
+.PHONY: run test build lint docker
+
+run:
+	go run ./cmd/job
+
+test:
+	go test ./...
+
+build:
+	go build -trimpath -o ./bin/app ./cmd/job
+
+lint:
+	golangci-lint run
+
+docker:
+	docker build -t {{ .Name }} .

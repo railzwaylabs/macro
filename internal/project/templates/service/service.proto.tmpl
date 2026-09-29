@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package {{ .ProtoName }}.v1;
+
+option go_package = "{{ .ModulePath }}/gen/{{ .ProtoName }}/v1;{{ .ProtoGoPackage }}";
+
+service {{ .ProtoServiceName }} {}
