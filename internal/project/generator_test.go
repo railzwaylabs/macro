@@ -37,7 +37,16 @@ func TestGenerateLayouts(t *testing.T) {
 			); err != nil {
 				t.Fatalf("generated main.go is invalid: %v", err)
 			}
-			for _, path := range []string{"internal", "tests", "Dockerfile", "README.md", filepath.Join("deploy", "kubernetes"), filepath.Join("deploy", "nomad")} {
+			for _, path := range []string{
+				"internal",
+				"tests",
+				"Dockerfile",
+				"README.md",
+				".gitignore",
+				".golangci.yml",
+				filepath.Join("deploy", "kubernetes"),
+				filepath.Join("deploy", "nomad"),
+			} {
 				if _, err := os.Stat(filepath.Join(result.Directory, path)); err != nil {
 					t.Errorf("required path %s: %v", path, err)
 				}
@@ -53,6 +62,24 @@ func TestGenerateLayouts(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGenerateUsesProjectModuleInLintConfiguration(t *testing.T) {
+	generated, err := Generate(GenerateOptions{
+		Parent:     t.TempDir(),
+		Name:       "billing",
+		Type:       TypeService,
+		ModulePath: "example.com/commerce/billing",
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	lintConfig := filepath.Join(generated.Directory, ".golangci.yml")
+	assertFileContains(t, lintConfig, "- example.com/commerce/billing")
+
+	gitignore := filepath.Join(generated.Directory, ".gitignore")
+	assertFileContains(t, gitignore, "/bin/", "/dist/", ".env", ".DS_Store")
 }
 
 func TestGenerateRejectsExistingDestination(t *testing.T) {

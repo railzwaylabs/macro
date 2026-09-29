@@ -74,7 +74,7 @@ go run ./cmd/job
 | Structured logging | Uses Zap with a runtime-adjustable log level |
 | Diagnostics | Serves pprof and log-level management on a loopback listener |
 | Data-store setup | Configures GORM connections for PostgreSQL, MySQL, and SQLite |
-| Project scaffolding | Generates independently runnable service, worker, and job projects |
+| Project scaffolding | Generates runnable projects with Git and golangci-lint defaults |
 | Workspace management | Tracks related projects using normalized relative paths |
 | Deployment-ready layout | Generates a Dockerfile and Kubernetes/Nomad directories |
 

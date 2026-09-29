@@ -150,6 +150,8 @@ func templatesFor(kind Type) []fileTemplate {
 	common := []fileTemplate{
 		{source: "templates/common/go.mod.tmpl", target: "go.mod"},
 		{source: "templates/common/Dockerfile.tmpl", target: "Dockerfile"},
+		{source: "templates/common/gitignore.tmpl", target: ".gitignore"},
+		{source: "templates/common/golangci.yml.tmpl", target: ".golangci.yml"},
 	}
 	if kind != TypeWorker {
 		common = append(common, fileTemplate{source: "templates/common/README.md.tmpl", target: "README.md"})
