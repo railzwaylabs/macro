@@ -1,0 +1,17 @@
+package worker
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+func TestWorkerStopsWhenContextIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := (&Worker{}).Run(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+}

@@ -1,0 +1,20 @@
+# {{ .Name }}
+
+Long-running Macro worker.
+
+The generated worker waits for context cancellation and has no dependency on
+a specific message broker. Wire the application's Kafka, NATS, SQS, database
+polling, or other infrastructure adapter in `internal/worker`.
+
+## Run
+
+```bash
+go mod tidy
+make run
+```
+
+## Test
+
+```bash
+make test
+```

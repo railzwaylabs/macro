@@ -1,0 +1,13 @@
+package worker
+
+import "context"
+
+// Worker owns application-specific work processing and infrastructure wiring.
+type Worker struct{}
+
+// Run blocks until shutdown. Replace this body with the application's
+// infrastructure-specific consume or polling loop.
+func (worker *Worker) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}

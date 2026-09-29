@@ -1,0 +1,17 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/railzwaylabs/macro"
+)
+
+func main() {
+	app := macro.NewService({{ printf "%q" .Name }})
+	// Register generated gRPC services with app.GRPC() here.
+	if err := app.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}

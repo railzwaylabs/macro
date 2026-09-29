@@ -88,13 +88,17 @@ func configurePool(db *sql.DB, cfg Config) {
 	if cfg.MaxOpenConnections > 0 {
 		db.SetMaxOpenConns(cfg.MaxOpenConnections)
 	}
+
 	if cfg.MaxIdleConnections > 0 {
 		db.SetMaxIdleConns(cfg.MaxIdleConnections)
 	}
+
 	if cfg.ConnectionMaxLifetime > 0 {
 		db.SetConnMaxLifetime(cfg.ConnectionMaxLifetime)
 	}
+
 	if cfg.ConnectionMaxIdleTime > 0 {
 		db.SetConnMaxIdleTime(cfg.ConnectionMaxIdleTime)
 	}
+
 }

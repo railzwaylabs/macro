@@ -40,6 +40,7 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Database) == "" {
 		return fmt.Errorf("store: database is required for %s", c.Driver)
 	}
+
 	if c.Driver != SQLite {
 		if strings.TrimSpace(c.Host) == "" {
 			return fmt.Errorf("store: host is required for %s", c.Driver)
@@ -48,9 +49,11 @@ func (c Config) Validate() error {
 			return fmt.Errorf("store: username is required for %s", c.Driver)
 		}
 	}
+
 	if c.MaxOpenConnections < 0 || c.MaxIdleConnections < 0 {
 		return fmt.Errorf("store: connection limits cannot be negative")
 	}
+
 	if c.ConnectionMaxLifetime < 0 || c.ConnectionMaxIdleTime < 0 {
 		return fmt.Errorf("store: connection durations cannot be negative")
 	}

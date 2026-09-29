@@ -1,0 +1,17 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/railzwaylabs/macro"
+	applicationworker "{{ .ModulePath }}/internal/worker"
+)
+
+func main() {
+	worker := &applicationworker.Worker{}
+	if err := macro.RunWorker({{ printf "%q" .Name }}, worker); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
