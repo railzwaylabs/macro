@@ -129,6 +129,28 @@ func TestManifestDeploymentMatchesGeneratedFiles(t *testing.T) {
 	}
 }
 
+func TestManifestRuntimeDefaults(t *testing.T) {
+	service := NewManifest("billing", TypeService)
+	if service.Runtime.HTTP.Enabled || service.Runtime.HTTP.Port != 8080 || !service.Runtime.GRPC.Enabled || service.Runtime.GRPC.Port != 9000 {
+		t.Fatalf("service transports = %#v", service.Runtime)
+	}
+	if !service.Runtime.Debug.Enabled || service.Runtime.Debug.Host != "127.0.0.1" || service.Runtime.Debug.Port != 6060 {
+		t.Fatalf("debug = %#v", service.Runtime.Debug)
+	}
+	if !service.Runtime.Metrics.Enabled || service.Runtime.Metrics.Port != 9090 {
+		t.Fatalf("metrics = %#v", service.Runtime.Metrics)
+	}
+	if service.Telemetry.Enabled || service.Telemetry.Protocol != "grpc" || service.Telemetry.Endpoint != "localhost:4317" {
+		t.Fatalf("telemetry = %#v", service.Telemetry)
+	}
+	for _, kind := range []Type{TypeWorker, TypeJob} {
+		manifest := NewManifest("task", kind)
+		if manifest.Runtime.HTTP.Enabled || manifest.Runtime.GRPC.Enabled {
+			t.Fatalf("%s unexpectedly enables application transports", kind)
+		}
+	}
+}
+
 func TestGenerateRejectsExistingDestination(t *testing.T) {
 	parent := t.TempDir()
 	if err := os.Mkdir(filepath.Join(parent, "billing"), 0o755); err != nil {
@@ -149,7 +171,7 @@ func TestManifestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	if got.Name != manifest.Name || got.Type != manifest.Type || got.Runtime.GRPCPort != nil {
+	if got.Name != manifest.Name || got.Type != manifest.Type || got.Runtime.GRPC.Enabled {
 		t.Fatalf("manifest = %#v", got)
 	}
 }

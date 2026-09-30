@@ -1,6 +1,9 @@
 package macro
 
 import (
+	"context"
+	"fmt"
+	"net/http"
 	"time"
 
 	"google.golang.org/grpc"
@@ -9,6 +12,7 @@ import (
 	"github.com/railzwaylabs/macro/logger"
 	"github.com/railzwaylabs/macro/server"
 	macrogrpc "github.com/railzwaylabs/macro/server/transport/grpc"
+	macrohttp "github.com/railzwaylabs/macro/server/transport/http"
 	"github.com/railzwaylabs/macro/service"
 )
 
@@ -17,6 +21,7 @@ import (
 type Service interface {
 	service.Service
 	GRPC() *grpc.Server
+	HTTP() *http.Server
 }
 
 // Option configures the default Macro runtime.
@@ -30,14 +35,20 @@ type options struct {
 	servers         []server.Server
 	shutdownTimeout time.Duration
 	grpcAddress     string
+	httpAddress     string
 	debugAddress    string
 	grpcEnabled     bool
+	httpEnabled     bool
 	debugEnabled    bool
+	grpcReflection  bool
+	httpHandler     http.Handler
+	modules         []Module
 }
 
 type macroService struct {
 	service.Service
 	grpcServer *macrogrpc.Server
+	httpServer *macrohttp.Server
 }
 
 // NewService creates a service with default logging, gRPC, diagnostics, signal
@@ -57,6 +68,7 @@ func newService(opts ...Option) Service {
 		name:            "macro",
 		shutdownTimeout: 10 * time.Second,
 		grpcEnabled:     true,
+		httpEnabled:     false,
 		debugEnabled:    true,
 	}
 	for _, opt := range opts {
@@ -74,11 +86,30 @@ func newService(opts ...Option) Service {
 		}
 	}
 
-	servers := make([]server.Server, 0, len(config.servers)+2)
+	servers := make([]server.Server, 0, len(config.servers)+4)
 	var rpcServer *macrogrpc.Server
 	if config.grpcEnabled {
-		rpcServer = macrogrpc.New(config.grpcAddress)
+		grpcOptions := []macrogrpc.Option{macrogrpc.WithLogger(log)}
+		if config.grpcReflection {
+			grpcOptions = append(grpcOptions, macrogrpc.WithReflection())
+		}
+		rpcServer = macrogrpc.New(config.grpcAddress, grpcOptions...)
+	}
+	var webServer *macrohttp.Server
+	if config.httpEnabled {
+		webServer = macrohttp.New(config.httpAddress, config.httpHandler)
+	}
+	if config.grpcEnabled && config.httpEnabled && rpcServer.Address() == webServer.Address() && !isEphemeralAddress(rpcServer.Address()) {
+		servers = append(servers, invalidServer{err: fmt.Errorf("macro: HTTP and gRPC cannot use the same listener address %q", rpcServer.Address())})
+	}
+	if len(config.modules) > 0 {
+		servers = append(servers, newWiringRuntime(config.modules, nativeGRPC(rpcServer), nativeHTTP(webServer)))
+	}
+	if rpcServer != nil {
 		servers = append(servers, rpcServer)
+	}
+	if webServer != nil {
+		servers = append(servers, webServer)
 	}
 	if config.debugEnabled {
 		servers = append(servers, debug.New(debug.Config{
@@ -100,8 +131,39 @@ func newService(opts ...Option) Service {
 	return &macroService{
 		Service:    service.New(serviceOptions...),
 		grpcServer: rpcServer,
+		httpServer: webServer,
 	}
 }
+
+func isEphemeralAddress(address string) bool {
+	return address == ":0" || len(address) >= 2 && address[len(address)-2:] == ":0"
+}
+
+func (s *macroService) HTTP() *http.Server {
+	if s.httpServer == nil {
+		return nil
+	}
+	return s.httpServer.HTTP()
+}
+
+func nativeGRPC(server *macrogrpc.Server) *grpc.Server {
+	if server == nil {
+		return nil
+	}
+	return server.GRPC()
+}
+
+func nativeHTTP(server *macrohttp.Server) *http.Server {
+	if server == nil {
+		return nil
+	}
+	return server.HTTP()
+}
+
+type invalidServer struct{ err error }
+
+func (server invalidServer) Start(context.Context) error { return server.err }
+func (invalidServer) Stop(context.Context) error         { return nil }
 
 func (s *macroService) GRPC() *grpc.Server {
 	if s.grpcServer == nil {
@@ -142,11 +204,27 @@ func ShutdownTimeout(timeout time.Duration) Option {
 	}
 }
 
-// GRPCAddress overrides the default gRPC address (:8000).
+// GRPCAddress overrides the default gRPC address (:9000).
 func GRPCAddress(address string) Option {
 	return func(o *options) {
 		o.grpcAddress = address
 	}
+}
+
+// WithHTTP enables the standard HTTP server with an application-owned handler.
+func WithHTTP(handler http.Handler) Option {
+	return func(options *options) {
+		options.httpEnabled = true
+		options.httpHandler = handler
+	}
+}
+
+func HTTPAddress(address string) Option {
+	return func(options *options) { options.httpAddress = address }
+}
+
+func WithGRPCReflection() Option {
+	return func(options *options) { options.grpcReflection = true }
 }
 
 // DebugAddress overrides the default diagnostics address (127.0.0.1:6060).

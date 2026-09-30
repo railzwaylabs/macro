@@ -5,11 +5,14 @@ import (
 	"os"
 
 	"github.com/railzwaylabs/macro"
+	"{{ .ModulePath }}/internal/modules"
 )
 
 func main() {
-	app := macro.NewService({{ printf "%q" .Name }})
-	// Register generated gRPC services with app.GRPC() here.
+	app := macro.NewService(
+		{{ printf "%q" .Name }},
+		macro.WithModules(modules.All()...),
+	)
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
