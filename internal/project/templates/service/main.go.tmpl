@@ -11,7 +11,7 @@ import (
 func main() {
 	app := macro.NewService(
 		{{ printf "%q" .Name }},
-		macro.WithModules(modules.All()...),
+		modules.Options()...,
 	)
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

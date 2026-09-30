@@ -13,7 +13,7 @@ Macro is inspired by [Go Micro](https://github.com/micro/go-micro) and adapted
 to the conventions used by Railzway services.
 
 > **Project status:** Macro is under active development. The first development
-> `v0.3.0` is under development, and APIs may evolve before the first stable
+> `v0.4.0` is under development, and APIs may evolve before the first stable
 > release.
 
 ## Why Macro?
@@ -76,6 +76,7 @@ go run ./cmd/job
 | Service lifecycle | Starts registered servers and stops them in reverse order |
 | Worker lifecycle | Runs application-owned workers with signal-driven context cancellation |
 | gRPC runtime | Provides a standard `google.golang.org/grpc` server on `:9000` |
+| gRPC-Gateway | Opt-in HTTP/JSON routes generated from `google.api.http` annotations |
 | Dependency wiring | Uses generated module registration with Fx at the composition boundary |
 | HTTP runtime | Optionally serves an application-owned `net/http` handler on `:8080` |
 | Structured logging | Uses Zap with a runtime-adjustable log level |
@@ -178,6 +179,22 @@ manual edits when another module is added.
 The migrations contain comments only. Macro does not infer domain models,
 repository methods, schemas, or RPC behavior from a module name.
 
+Add a standard protobuf/gRPC API to an existing module:
+
+```bash
+macro add grpc invoice
+```
+
+Add the same native gRPC API plus annotated HTTP/JSON routes:
+
+```bash
+macro add grpc invoice --gateway
+```
+
+Both commands update the generated module registry, run Buf, and resolve Go
+modules. The gateway flag also enables the HTTP listener in `macro.yaml`; no
+manual edit to `cmd/service/main.go` is required.
+
 Create and inspect a workspace, or add an existing Macro project:
 
 ```bash
@@ -208,6 +225,7 @@ Use the built-in help for flags and validation rules:
 macro --help
 macro init --help
 macro add module --help
+macro add grpc --help
 macro workspace --help
 ```
 
@@ -217,6 +235,7 @@ changing workspace membership:
 ```bash
 macro init billing --type service --dry-run
 macro add module invoice --dry-run
+macro add grpc invoice --gateway --dry-run
 ```
 
 Check the local toolchain and current project/workspace context:
@@ -311,25 +330,71 @@ make proto
 
 Workers and jobs do not receive protobuf or Buf files by default.
 
-### v0.3 scope
+### Native gRPC and HTTP/JSON
 
-Macro v0.3 provides generated Fx module registration, HTTP/gRPC transport
-selection, gRPC health, optional reflection, request logging, panic recovery,
-and `bufconn` test coverage. Domain and application code remain ordinary Go.
+`macro add grpc product --gateway` generates this transport flow from one
+protobuf contract:
 
-PostgreSQL Testcontainers scaffolding, grpc-gateway generation, metrics
-serving, and OpenTelemetry exporters are intentionally deferred until their
-CLI configuration and generated contracts can be delivered end to end. Macro
-does not start a telemetry collector; the manifest reserves the conventional
-OTLP gRPC endpoint `localhost:4317` while telemetry is disabled by default.
+```text
+HTTP/JSON                 gRPC client
+    │                         │
+    ▼                         ▼
+grpc-gateway ─────────► gRPC handler
+                            │
+                            ▼
+                       application
+                            │
+                            ▼
+                          domain
+```
 
-Register generated handlers before calling `Run`:
+The generated layout keeps contracts and generated artifacts separate:
+
+```text
+api/proto/catalogue/v1/product.proto
+gen/catalogue/v1/product.pb.go
+gen/catalogue/v1/product_grpc.pb.go
+gen/catalogue/v1/product.pb.gw.go
+```
+
+Routes remain owned by `google.api.http` annotations in the proto file. Macro
+uses grpc-gateway's default status mapping, including `InvalidArgument` → 400,
+`NotFound` → 404, and `Unavailable` → 503.
+
+The generated gateway currently uses the official in-process registration
+adapter. Both transports call the same application service, but gateway calls
+bypass network-level gRPC interceptors. Native gRPC requests still use Macro's
+logging and recovery interceptors. This keeps local startup deterministic and
+avoids a second set of HTTP business handlers.
+
+Generated services expose the standard gRPC health protocol automatically.
+Reflection is opt-in because it exposes service metadata and may be unsuitable
+for a public production listener:
 
 ```go
-service := macro.NewService("billing")
-billingv1.RegisterBillingServiceServer(service.GRPC(), billingHandler)
-return service.Run()
+app := macro.NewService("catalogue", macro.WithGRPCReflection())
 ```
+
+Test the generated project normally; transport tests can use `bufconn` for
+gRPC and `httptest` with the gateway mux without binding external ports:
+
+```bash
+go test ./...
+go run ./cmd/service
+```
+
+Then call `localhost:9000` with a generated gRPC client, or use HTTP:
+
+```bash
+curl -X POST http://localhost:8080/v1/products \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Keyboard"}'
+```
+
+PostgreSQL/Testcontainers scaffolding and OpenTelemetry exporters remain
+separate concerns until persistence and telemetry generation are explicitly
+enabled. The manifest keeps the conventional OTLP gRPC endpoint
+`localhost:4317`; it is not an application listener.
 
 The default address is `:9000`. Override it when necessary:
 
@@ -348,6 +413,7 @@ introduce a proprietary RPC abstraction.
 | --- | --- |
 | `macro.GRPCAddress(address)` | Override the default `:9000` listener |
 | `macro.WithHTTP(handler)` | Enable HTTP with an application-owned `net/http` handler |
+| `macro.WithGateway(options...)` | Enable HTTP using an official grpc-gateway `ServeMux` |
 | `macro.HTTPAddress(address)` | Override the default HTTP `:8080` listener |
 | `macro.WithModules(modules...)` | Register generated dependency-wiring modules |
 | `macro.WithGRPCReflection()` | Enable standard gRPC server reflection |
