@@ -32,7 +32,14 @@ type Registration struct {
 }
 
 func Init(parent, name string) (destination string, returnErr error) {
+	return InitWithProfile(parent, name, ProfileNginxCompose)
+}
+
+func InitWithProfile(parent, name string, profile Profile) (destination string, returnErr error) {
 	if err := project.ValidateName(name); err != nil {
+		return "", err
+	}
+	if err := ValidateProfile(profile); err != nil {
 		return "", err
 	}
 
@@ -56,7 +63,7 @@ func Init(parent, name string) (destination string, returnErr error) {
 		}
 	}()
 
-	manifest := Manifest{Name: name, Projects: []ProjectRef{}}
+	manifest := Manifest{Name: name, Projects: []ProjectRef{}, Infrastructure: &Infrastructure{Profile: profile}}
 	if err := write(filepath.Join(createdDirectory, ManifestName), manifest); err != nil {
 		return "", fmt.Errorf("create workspace manifest in %s: %w", createdDirectory, err)
 	}

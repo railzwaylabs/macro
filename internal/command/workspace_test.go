@@ -83,3 +83,40 @@ func TestWorkspaceCommands(t *testing.T) {
 		t.Fatalf("workspace manifest: %v", err)
 	}
 }
+
+func TestWorkspaceInfrastructureDryRun(t *testing.T) {
+	parent := t.TempDir()
+	t.Chdir(parent)
+	var stdout bytes.Buffer
+	cmd := New(&stdout, &bytes.Buffer{}, BuildInfo{})
+	cmd.SetArgs([]string{"workspace", "init", "commerce", "--profile", "traefik-nomad"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(filepath.Join(parent, "commerce"))
+	stdout.Reset()
+	cmd = New(&stdout, &bytes.Buffer{}, BuildInfo{})
+	cmd.SetArgs([]string{"workspace", "infra", "add", "postgres", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	m, err := os.ReadFile(filepath.Join(parent, "commerce", "macro.workspace.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(m), "postgres") {
+		t.Fatal("dry-run changed manifest")
+	}
+	stdout.Reset()
+	cmd = New(&stdout, &bytes.Buffer{}, BuildInfo{})
+	cmd.SetArgs([]string{"workspace", "infra", "generate", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "bootstrap/nomad.hcl") || !strings.Contains(stdout.String(), "No changes were written") {
+		t.Fatalf("output = %s", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(parent, "commerce", ".macro")); !os.IsNotExist(err) {
+		t.Fatal("dry-run created files")
+	}
+}

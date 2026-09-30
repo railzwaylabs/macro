@@ -22,6 +22,9 @@ func newWorkspaceCommand(cli *cliOptions) *cobra.Command {
 
 Macro searches the current directory and its parents for the workspace.`,
 		Example: `  macro workspace init commerce
+  macro workspace init commerce --profile traefik-nomad
+  macro workspace infra add postgres
+  macro workspace infra generate
   macro workspace add ../catalog
   macro workspace list`,
 		Args: cobra.NoArgs,
@@ -36,12 +39,15 @@ Macro searches the current directory and its parents for the workspace.`,
 	addCommand.GroupID = "commands"
 	listCommand := newWorkspaceListCommand()
 	listCommand.GroupID = "commands"
-	cmd.AddCommand(initCommand, addCommand, listCommand)
+	infraCommand := newWorkspaceInfrastructureCommand(cli)
+	infraCommand.GroupID = "commands"
+	cmd.AddCommand(initCommand, addCommand, listCommand, infraCommand)
 	return cmd
 }
 
 func newWorkspaceInitCommand(cli *cliOptions) *cobra.Command {
-	return &cobra.Command{
+	var profile string
+	cmd := &cobra.Command{
 		Use:   "init <name>",
 		Short: "Create a new Macro workspace",
 		Long: `Create a directory containing an empty macro.workspace.yaml manifest.
@@ -57,12 +63,23 @@ Projects created beneath this directory are registered automatically.`,
 				return fmt.Errorf("get current directory: %w", err)
 			}
 
-			return initializeWorkspace(cmd.OutOrStdout(), cwd, args[0], cli.quiet)
+			parsed := workspace.Profile(profile)
+			if err := workspace.ValidateProfile(parsed); err != nil {
+				return err
+			}
+			if cli.dryRun {
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "Would create workspace %s with infrastructure profile %s.\nNo changes were written.\n", args[0], parsed)
+				return err
+			}
+			return initializeWorkspace(cmd.OutOrStdout(), cwd, args[0], parsed, cli.quiet)
 		},
 	}
+	cmd.Flags().StringVar(&profile, "profile", string(workspace.ProfileNginxCompose), "infrastructure profile (nginx-compose or traefik-nomad)")
+	cmd.Flags().BoolVar(&cli.dryRun, "dry-run", false, "show planned changes without applying them")
+	return cmd
 }
 
-func initializeWorkspace(output io.Writer, parent, name string, quiet bool) error {
+func initializeWorkspace(output io.Writer, parent, name string, profile workspace.Profile, quiet bool) error {
 	if quiet {
 		output = io.Discard
 	}
@@ -72,7 +89,7 @@ func initializeWorkspace(output io.Writer, parent, name string, quiet bool) erro
 		Success: fmt.Sprintf("Created workspace %s", name),
 		Failure: fmt.Sprintf("Failed to create workspace %s", name),
 		Run: func() error {
-			_, err := workspace.Init(parent, name)
+			_, err := workspace.InitWithProfile(parent, name, profile)
 			return err
 		},
 	}
@@ -82,6 +99,87 @@ func initializeWorkspace(output io.Writer, parent, name string, quiet bool) erro
 	}
 
 	return status.Success("Created " + workspace.ManifestName)
+}
+
+func newWorkspaceInfrastructureCommand(cli *cliOptions) *cobra.Command {
+	cmd := &cobra.Command{Use: "infra", Short: "Manage shared infrastructure configuration", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	cmd.AddCommand(newWorkspaceInfrastructureAddCommand(cli), newWorkspaceInfrastructureGenerateCommand(cli))
+	return cmd
+}
+
+func currentWorkspace() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get current directory: %w", err)
+	}
+	root, err := workspace.Find(cwd)
+	if err != nil {
+		return "", fmt.Errorf("find workspace: %w", err)
+	}
+	return root, nil
+}
+
+func newWorkspaceInfrastructureAddCommand(cli *cliOptions) *cobra.Command {
+	var profile string
+	cmd := &cobra.Command{Use: "add <postgres|redis|observability>", Short: "Enable an optional infrastructure component", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		root, err := currentWorkspace()
+		if err != nil {
+			return err
+		}
+		manifest, err := workspace.Read(root)
+		if err != nil {
+			return err
+		}
+		selected := workspace.Profile(profile)
+		if manifest.Infrastructure != nil {
+			selected = manifest.Infrastructure.Profile
+		}
+		if err := workspace.ValidateProfile(selected); err != nil {
+			return err
+		}
+		if cli.dryRun {
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Would enable %s using profile %s.\nNo changes were written.\n", args[0], selected)
+			return err
+		}
+		if err := workspace.AddInfrastructure(root, args[0], selected); err != nil {
+			return fmt.Errorf("add infrastructure: %w", err)
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Enabled infrastructure component %s.\n", args[0])
+		return err
+	}}
+	cmd.Flags().StringVar(&profile, "profile", string(workspace.ProfileNginxCompose), "profile used when initializing infrastructure in a legacy workspace")
+	cmd.Flags().BoolVar(&cli.dryRun, "dry-run", false, "show planned changes without applying them")
+	return cmd
+}
+
+func newWorkspaceInfrastructureGenerateCommand(cli *cliOptions) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{Use: "generate", Short: "Generate shared infrastructure configuration", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		root, err := currentWorkspace()
+		if err != nil {
+			return err
+		}
+		files, err := workspace.PlanInfrastructure(root)
+		if err != nil {
+			return fmt.Errorf("plan infrastructure: %w", err)
+		}
+		if cli.dryRun {
+			fmt.Fprintln(cmd.OutOrStdout(), "Would generate:")
+			for _, file := range files {
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s/%s\n", workspace.InfrastructureDirectory, file.Path)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "\nNo changes were written.")
+			return nil
+		}
+		if _, err = workspace.GenerateInfrastructure(root, force); err != nil {
+			return fmt.Errorf("generate infrastructure: %w", err)
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Generated %d files in %s.\n", len(files), workspace.InfrastructureDirectory)
+		return err
+	}}
+	cmd.Flags().BoolVar(&force, "force", false, "replace the generator-managed infrastructure directory")
+	cmd.Flags().BoolVar(&cli.dryRun, "dry-run", false, "show planned changes without applying them")
+	return cmd
 }
 
 func newWorkspaceAddCommand(cli *cliOptions) *cobra.Command {
