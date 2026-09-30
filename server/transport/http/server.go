@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const DefaultAddress = ":4317"
+const DefaultAddress = ":8080"
 
 type Server struct {
 	address  string
@@ -42,10 +42,12 @@ func (server *Server) Start(context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	server.listener = listener
 	go func() {
 		_ = server.server.Serve(listener)
 	}()
+
 	return nil
 }
 
@@ -54,5 +56,6 @@ func (server *Server) Stop(ctx context.Context) error {
 	if errors.Is(err, stdhttp.ErrServerClosed) {
 		return nil
 	}
+
 	return err
 }

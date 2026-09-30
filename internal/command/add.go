@@ -9,12 +9,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/railzwaylabs/macro/internal/grpcscaffold"
 	modulegenerator "github.com/railzwaylabs/macro/internal/module"
 	"github.com/railzwaylabs/macro/internal/project"
 	"github.com/railzwaylabs/macro/internal/ui"
 )
 
-func newAddCommand(cli *cliOptions) *cobra.Command {
+func newAddCommand(runner project.CommandRunner, cli *cliOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "add",
 		Short: "Add a component to a Macro project",
@@ -28,7 +29,60 @@ func newAddCommand(cli *cliOptions) *cobra.Command {
 	moduleCommand := newAddModuleCommand(cli)
 	moduleCommand.GroupID = "components"
 	command.AddCommand(moduleCommand)
+	grpcCommand := newAddGRPCCommand(runner, cli)
+	grpcCommand.GroupID = "components"
+	command.AddCommand(grpcCommand)
 
+	return command
+}
+
+func newAddGRPCCommand(runner project.CommandRunner, cli *cliOptions) *cobra.Command {
+	var gateway bool
+	command := &cobra.Command{
+		Use: "grpc <module>", Short: "Add a protobuf gRPC transport to a module",
+		Example: "  macro add grpc product\n  macro add grpc product --gateway",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			workingDirectory, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			projectDirectory, err := project.Find(workingDirectory)
+			if err != nil {
+				return fmt.Errorf("find Macro project: %w", err)
+			}
+			name := arguments[0]
+			if cli.dryRun {
+				_, err := fmt.Fprintf(command.OutOrStdout(), "Would generate gRPC transport for %s (gateway: %t).\nNo changes were written.\n", name, gateway)
+				return err
+			}
+			statusOutput := command.OutOrStdout()
+			if cli.quiet {
+				statusOutput = io.Discard
+			}
+			status := ui.NewStatus(statusOutput)
+			if err := status.Run(ui.Step{Start: fmt.Sprintf("Generating gRPC transport for %q", name), Success: fmt.Sprintf("Generated gRPC transport for %s", name), Failure: fmt.Sprintf("Failed to generate gRPC transport for %s", name), Run: func() error {
+				_, err := grpcscaffold.Add(grpcscaffold.Options{ProjectDirectory: projectDirectory, Name: name, Gateway: gateway})
+				return err
+			}}); err != nil {
+				return fmt.Errorf("add gRPC transport: %w", err)
+			}
+			if gateway {
+				if err := runner.Run(command.Context(), projectDirectory, "buf", "dep", "update"); err != nil {
+					return fmt.Errorf("resolve protobuf dependencies: %w", err)
+				}
+			}
+			if err := project.GenerateProto(command.Context(), projectDirectory, runner); err != nil {
+				return fmt.Errorf("generate protobuf code: %w", err)
+			}
+			if err := project.Tidy(command.Context(), projectDirectory, runner); err != nil {
+				return fmt.Errorf("tidy generated project: %w", err)
+			}
+			return nil
+		},
+	}
+	command.Flags().BoolVar(&gateway, "gateway", false, "also expose annotated HTTP/JSON routes")
+	command.Flags().BoolVar(&cli.dryRun, "dry-run", false, "show planned changes without applying them")
 	return command
 }
 

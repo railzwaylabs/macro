@@ -16,7 +16,7 @@ import (
 	"github.com/railzwaylabs/macro/logger"
 )
 
-const DefaultAddress = ":4318"
+const DefaultAddress = ":9000"
 
 type Option func(*options)
 
@@ -56,10 +56,12 @@ func New(address string, configured ...Option) *Server {
 		}
 	}
 	unary := []grpc.UnaryServerInterceptor{recoveryInterceptor()}
+	stream := []grpc.StreamServerInterceptor{streamRecoveryInterceptor()}
 	if settings.logger != nil {
 		unary = append(unary, requestLogger(settings.logger))
+		stream = append(stream, streamRequestLogger(settings.logger))
 	}
-	settings.server = append(settings.server, grpc.ChainUnaryInterceptor(unary...))
+	settings.server = append(settings.server, grpc.ChainUnaryInterceptor(unary...), grpc.ChainStreamInterceptor(stream...))
 	native := grpc.NewServer(settings.server...)
 	grpc_health_v1.RegisterHealthServer(native, health.NewServer())
 	if settings.reflection {
@@ -71,10 +73,29 @@ func New(address string, configured ...Option) *Server {
 	}
 }
 
+func streamRecoveryInterceptor() grpc.StreamServerInterceptor {
+	return func(server any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
+		defer func() {
+			if recover() != nil {
+				err = status.Error(codes.Internal, "internal server error")
+			}
+		}()
+		return handler(server, stream)
+	}
+}
+
 // GRPC returns the underlying gRPC server for generated service registration.
 // Register services before starting the Macro service.
 func (s *Server) GRPC() *grpc.Server {
 	return s.server
+}
+
+func streamRequestLogger(log *logger.Logger) grpc.StreamServerInterceptor {
+	return func(server any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		err := handler(server, stream)
+		log.Zap().Info("grpc stream", zap.String("method", info.FullMethod), zap.String("status", status.Code(err).String()))
+		return err
+	}
 }
 
 func (s *Server) Address() string {

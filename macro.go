@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 
 	"github.com/railzwaylabs/macro/debug"
@@ -22,6 +23,7 @@ type Service interface {
 	service.Service
 	GRPC() *grpc.Server
 	HTTP() *http.Server
+	Gateway() *runtime.ServeMux
 }
 
 // Option configures the default Macro runtime.
@@ -42,6 +44,7 @@ type options struct {
 	debugEnabled    bool
 	grpcReflection  bool
 	httpHandler     http.Handler
+	gatewayMux      *runtime.ServeMux
 	modules         []Module
 }
 
@@ -49,6 +52,7 @@ type macroService struct {
 	service.Service
 	grpcServer *macrogrpc.Server
 	httpServer *macrohttp.Server
+	gatewayMux *runtime.ServeMux
 }
 
 // NewService creates a service with default logging, gRPC, diagnostics, signal
@@ -95,22 +99,33 @@ func newService(opts ...Option) Service {
 		}
 		rpcServer = macrogrpc.New(config.grpcAddress, grpcOptions...)
 	}
+
 	var webServer *macrohttp.Server
+	if config.gatewayMux != nil {
+		config.httpEnabled = true
+		config.httpHandler = config.gatewayMux
+	}
+
 	if config.httpEnabled {
 		webServer = macrohttp.New(config.httpAddress, config.httpHandler)
 	}
+
 	if config.grpcEnabled && config.httpEnabled && rpcServer.Address() == webServer.Address() && !isEphemeralAddress(rpcServer.Address()) {
 		servers = append(servers, invalidServer{err: fmt.Errorf("macro: HTTP and gRPC cannot use the same listener address %q", rpcServer.Address())})
 	}
+
 	if len(config.modules) > 0 {
-		servers = append(servers, newWiringRuntime(config.modules, nativeGRPC(rpcServer), nativeHTTP(webServer)))
+		servers = append(servers, newWiringRuntime(config.modules, nativeGRPC(rpcServer), nativeHTTP(webServer), config.gatewayMux))
 	}
+
 	if rpcServer != nil {
 		servers = append(servers, rpcServer)
 	}
+
 	if webServer != nil {
 		servers = append(servers, webServer)
 	}
+
 	if config.debugEnabled {
 		servers = append(servers, debug.New(debug.Config{
 			Address: config.debugAddress,
@@ -124,6 +139,7 @@ func newService(opts ...Option) Service {
 		service.WithLogger(log),
 		service.ShutdownTimeout(config.shutdownTimeout),
 	}
+
 	for _, srv := range servers {
 		serviceOptions = append(serviceOptions, service.WithServer(srv))
 	}
@@ -132,8 +148,11 @@ func newService(opts ...Option) Service {
 		Service:    service.New(serviceOptions...),
 		grpcServer: rpcServer,
 		httpServer: webServer,
+		gatewayMux: config.gatewayMux,
 	}
 }
+
+func (s *macroService) Gateway() *runtime.ServeMux { return s.gatewayMux }
 
 func isEphemeralAddress(address string) bool {
 	return address == ":0" || len(address) >= 2 && address[len(address)-2:] == ":0"
@@ -216,6 +235,13 @@ func WithHTTP(handler http.Handler) Option {
 	return func(options *options) {
 		options.httpEnabled = true
 		options.httpHandler = handler
+	}
+}
+
+// WithGateway enables HTTP/JSON routing through the official grpc-gateway mux.
+func WithGateway(muxOptions ...runtime.ServeMuxOption) Option {
+	return func(config *options) {
+		config.gatewayMux = runtime.NewServeMux(muxOptions...)
 	}
 }
 

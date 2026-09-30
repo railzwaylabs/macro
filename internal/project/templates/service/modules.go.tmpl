@@ -7,3 +7,7 @@ import "github.com/railzwaylabs/macro"
 func All() []macro.Module {
 	return nil
 }
+
+func Options() []macro.Option {
+	return []macro.Option{macro.WithModules(All()...)}
+}

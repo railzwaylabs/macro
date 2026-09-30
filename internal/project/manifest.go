@@ -39,8 +39,10 @@ type Manifest struct {
 	Telemetry  Telemetry         `yaml:"telemetry"`
 }
 
-// Module reserves a typed manifest value for future module configuration.
-type Module struct{}
+type Module struct {
+	GRPC    bool `yaml:"grpc,omitempty"`
+	Gateway bool `yaml:"gateway,omitempty"`
+}
 
 type Runtime struct {
 	HTTP    Listener `yaml:"http"`

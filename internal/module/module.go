@@ -95,6 +95,53 @@ func Add(projectDirectory, name string) (Result, error) {
 	return add(projectDirectory, name, time.Now().UTC())
 }
 
+// ConfigureTransport records generated transport wiring and refreshes the
+// generated registry. It refuses unknown modules and developer-owned registries.
+func ConfigureTransport(projectDirectory, name string, gateway bool) error {
+	manifest, err := project.Read(projectDirectory)
+	if err != nil {
+		return err
+	}
+	configuration, exists := manifest.Modules[name]
+	if !exists {
+		return fmt.Errorf("module %q is not registered: run macro add module %s first", name, name)
+	}
+	registryPath := filepath.Join(projectDirectory, "internal", "modules", "modules.go")
+	contents, err := os.ReadFile(registryPath)
+	if err != nil {
+		return fmt.Errorf("read generated module registry: %w", err)
+	}
+	if !strings.HasPrefix(string(contents), generatedRegistryHeader) {
+		return fmt.Errorf("refuse to overwrite developer-owned module registry %s", registryPath)
+	}
+	configuration.GRPC = true
+	configuration.Gateway = gateway
+	manifest.Modules[name] = configuration
+	if gateway {
+		manifest.Runtime.HTTP.Enabled = true
+	}
+	modulePath, err := readModulePath(projectDirectory)
+	if err != nil {
+		return err
+	}
+	if err := renderRegistry(registryPath, modulePath, manifest.Modules); err != nil {
+		return err
+	}
+	mainPath := filepath.Join(projectDirectory, "cmd", "service", "main.go")
+	if contents, readErr := os.ReadFile(mainPath); readErr == nil {
+		const previous = "macro.WithModules(modules.All()...)"
+		if strings.Contains(string(contents), previous) {
+			updated := strings.Replace(string(contents), previous, "modules.Options()...", 1)
+			if err := fsutil.WriteFileAtomic(mainPath, []byte(updated), 0o644); err != nil {
+				return fmt.Errorf("update generated service bootstrap: %w", err)
+			}
+		}
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return fmt.Errorf("inspect service bootstrap: %w", readErr)
+	}
+	return project.Write(filepath.Join(projectDirectory, project.ManifestName), manifest)
+}
+
 func add(projectDirectory, name string, timestamp time.Time) (generated Result, returnErr error) {
 	plan, err := BuildPlan(projectDirectory, name, timestamp)
 	if err != nil {
@@ -175,8 +222,10 @@ type templateData struct {
 }
 
 type registryModule struct {
-	Name  string
-	Alias string
+	Name    string
+	Alias   string
+	GRPC    bool
+	Gateway bool
 }
 
 func renderRegistry(path, modulePath string, registered map[string]project.Module) error {
@@ -193,12 +242,18 @@ func renderRegistry(path, modulePath string, registered map[string]project.Modul
 				return fmt.Errorf("module names %q and %q normalize to the same Go package alias %q", existing.Name, name, alias)
 			}
 		}
-		modules = append(modules, registryModule{Name: name, Alias: alias})
+		configuration := registered[name]
+		modules = append(modules, registryModule{Name: name, Alias: alias, GRPC: configuration.GRPC, Gateway: configuration.Gateway})
+	}
+	hasGateway := false
+	for _, item := range modules {
+		hasGateway = hasGateway || item.Gateway
 	}
 	return render("templates/registry.go.tmpl", path, struct {
 		ModulePath string
 		Modules    []registryModule
-	}{modulePath, modules})
+		HasGateway bool
+	}{modulePath, modules, hasGateway})
 }
 
 func readModulePath(directory string) (string, error) {

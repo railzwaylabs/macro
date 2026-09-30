@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.uber.org/fx"
 	"google.golang.org/grpc"
 )
@@ -14,15 +15,21 @@ type wiringRuntime struct {
 	initErr error
 }
 
-func newWiringRuntime(modules []Module, grpcServer *grpc.Server, httpServer *http.Server) *wiringRuntime {
+func newWiringRuntime(modules []Module, grpcServer *grpc.Server, httpServer *http.Server, gatewayMux *runtime.ServeMux) *wiringRuntime {
 	seen := make(map[string]struct{}, len(modules))
 	fxOptions := []fx.Option{fx.NopLogger}
 	if grpcServer != nil {
 		fxOptions = append(fxOptions, fx.Supply(grpcServer))
 	}
+
 	if httpServer != nil {
 		fxOptions = append(fxOptions, fx.Supply(httpServer))
 	}
+
+	if gatewayMux != nil {
+		fxOptions = append(fxOptions, fx.Supply(gatewayMux))
+	}
+
 	for _, module := range modules {
 		if module.name == "" {
 			return &wiringRuntime{initErr: fmt.Errorf("macro: module name is required")}
@@ -33,10 +40,12 @@ func newWiringRuntime(modules []Module, grpcServer *grpc.Server, httpServer *htt
 		seen[module.name] = struct{}{}
 		fxOptions = append(fxOptions, module.option)
 	}
+
 	app := fx.New(fxOptions...)
 	if err := app.Err(); err != nil {
 		return &wiringRuntime{app: app, initErr: fmt.Errorf("macro: validate dependency wiring: %w", err)}
 	}
+
 	return &wiringRuntime{app: app}
 }
 
@@ -44,9 +53,11 @@ func (runtime *wiringRuntime) Start(ctx context.Context) error {
 	if runtime.initErr != nil {
 		return runtime.initErr
 	}
+
 	if err := runtime.app.Start(ctx); err != nil {
 		return fmt.Errorf("start dependency wiring: %w", err)
 	}
+
 	return nil
 }
 
@@ -54,5 +65,6 @@ func (runtime *wiringRuntime) Stop(ctx context.Context) error {
 	if err := runtime.app.Stop(ctx); err != nil {
 		return fmt.Errorf("stop dependency wiring: %w", err)
 	}
+
 	return nil
 }

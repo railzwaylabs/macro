@@ -4,6 +4,7 @@ go 1.25.7
 
 require (
 	github.com/go-sql-driver/mysql v1.8.1
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3
 	github.com/spf13/cobra v1.10.1
 	go.uber.org/fx v1.24.0
 	go.uber.org/zap v1.28.0
@@ -33,6 +34,7 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )

@@ -12,7 +12,15 @@ import (
 func All() []macro.Module {
 	return []macro.Module{
 {{- range .Modules }}
-		{{ .Alias }}.Module,
+		{{ .Alias }}.Module{{ if .GRPC }}.With({{ .Alias }}.GRPC{{ if .Gateway }}, {{ .Alias }}.Gateway{{ end }}){{ end }},
 {{- end }}
 	}
+}
+
+func Options() []macro.Option {
+	options := []macro.Option{macro.WithModules(All()...)}
+{{- if .HasGateway }}
+	options = append(options, macro.WithGateway())
+{{- end }}
+	return options
 }

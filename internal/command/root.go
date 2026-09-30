@@ -73,6 +73,7 @@ func newRootCommand(out, errOut io.Writer, info BuildInfo, runner project.Comman
 		Long:  "Macro is a Go workload toolkit and CLI.",
 		Example: `  macro init billing
   macro add module invoice
+  macro add grpc invoice --gateway
   macro init notifications --type worker
   macro workspace init commerce
   macro workspace list`,
@@ -100,7 +101,7 @@ func newRootCommand(out, errOut io.Writer, info BuildInfo, runner project.Comman
 
 	initCommand := newInitCommand(runner, options)
 	initCommand.GroupID = "core"
-	addCommand := newAddCommand(options)
+	addCommand := newAddCommand(runner, options)
 	addCommand.GroupID = "core"
 	versionCommand := newVersionCommand(info)
 	versionCommand.GroupID = "utility"
