@@ -13,7 +13,7 @@ Macro is inspired by [Go Micro](https://github.com/micro/go-micro) and adapted
 to the conventions used by Railzway services.
 
 > **Project status:** Macro is under active development. The first development
-> `v0.4.0` is under development, and APIs may evolve before the first stable
+> `v0.5.0` is under development, and APIs may evolve before the first stable
 > release.
 
 ## Why Macro?
@@ -85,7 +85,7 @@ go run ./cmd/job
 | Project scaffolding | Generates runnable projects with Make, Docker, Git, and golangci-lint defaults |
 | Module scaffolding | Creates compile-safe application/transport boundaries and an empty migration pair |
 | Workspace management | Tracks related projects using normalized relative paths |
-| Container builds | Generates a Dockerfile; Kubernetes and Nomad manifests are not scaffolded |
+| Container builds | Generates a Dockerfile and opt-in shared Compose or Nomad infrastructure configuration |
 
 ## Workload Types
 
@@ -217,7 +217,41 @@ name: commerce
 projects:
   - path: ./billing-api
   - path: ./daily-report
+infrastructure:
+  profile: nginx-compose
+  components: [postgres, observability]
+  routes:
+    - project: billing-api
+      host: billing.local
+      path: /api
+  metrics:
+    - project: billing-api
+      path: /internal/metrics
 ```
+
+Shared infrastructure configuration is opt-in. `nginx-compose` (the default)
+generates Docker Compose and Nginx configuration. `traefik-nomad` generates
+separate Consul/Nomad/Vault bootstrap configuration, Traefik and dependency
+jobs, and workload jobs. Neither profile runs containers, submits jobs, or
+initializes a cluster.
+
+```bash
+macro workspace init commerce                         # nginx-compose
+macro workspace init commerce --profile traefik-nomad
+macro workspace infra add postgres
+macro workspace infra add redis
+macro workspace infra add observability
+macro workspace infra generate --dry-run
+macro workspace infra generate
+```
+
+Routes are only generated for explicitly configured HTTP-enabled services;
+Macro does not expose gRPC ports or strip path prefixes. Prometheus targets are
+also explicit—adding observability does not assume `/metrics`. Generated files
+live under `.macro/infra`; generation refuses to replace that directory unless
+`--force` is supplied. Keep overrides and secrets outside the managed
+directory. Generated examples use placeholders and are development baselines,
+not production deployment specifications.
 
 Use the built-in help for flags and validation rules:
 

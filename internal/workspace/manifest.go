@@ -14,8 +14,34 @@ import (
 const ManifestName = "macro.workspace.yaml"
 
 type Manifest struct {
-	Name     string       `yaml:"name"`
-	Projects []ProjectRef `yaml:"projects"`
+	Name           string          `yaml:"name"`
+	Projects       []ProjectRef    `yaml:"projects"`
+	Infrastructure *Infrastructure `yaml:"infrastructure,omitempty"`
+}
+
+type Profile string
+
+const (
+	ProfileNginxCompose Profile = "nginx-compose"
+	ProfileTraefikNomad Profile = "traefik-nomad"
+)
+
+type Infrastructure struct {
+	Profile    Profile   `yaml:"profile"`
+	Components []string  `yaml:"components,omitempty"`
+	Routes     []Route   `yaml:"routes,omitempty"`
+	Metrics    []Metrics `yaml:"metrics,omitempty"`
+}
+
+type Route struct {
+	Project string `yaml:"project"`
+	Host    string `yaml:"host"`
+	Path    string `yaml:"path"`
+}
+
+type Metrics struct {
+	Project string `yaml:"project"`
+	Path    string `yaml:"path"`
 }
 
 type ProjectRef struct {
@@ -40,6 +66,12 @@ func Read(directory string) (Manifest, error) {
 
 	if manifest.Projects == nil {
 		manifest.Projects = []ProjectRef{}
+	}
+
+	if manifest.Infrastructure != nil {
+		if err := ValidateInfrastructure(directory, manifest); err != nil {
+			return Manifest{}, fmt.Errorf("validate %s: %w", path, err)
+		}
 	}
 
 	return manifest, nil
