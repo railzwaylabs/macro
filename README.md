@@ -13,7 +13,8 @@ Macro is inspired by [Go Micro](https://github.com/micro/go-micro) and adapted
 to the conventions used by Railzway services.
 
 > **Project status:** Macro is under active development. The first development
-> release is `v0.1.0`, and APIs may evolve before the first stable release.
+> `v0.3.0` is under development, and APIs may evolve before the first stable
+> release.
 
 ## Why Macro?
 
@@ -58,7 +59,7 @@ configuration, runs `buf generate` when Buf is installed, then resolves Go
 modules. If Buf is unavailable, Macro keeps the project and prints the exact
 commands needed to finish generation.
 
-The service listens for gRPC traffic on `:8000` and exposes diagnostics on
+The service listens for gRPC traffic on `:9000` and exposes diagnostics on
 `127.0.0.1:6060`. Stop it with `Ctrl+C`.
 
 The generated job is finite and exits after its work completes:
@@ -74,7 +75,9 @@ go run ./cmd/job
 | --- | --- |
 | Service lifecycle | Starts registered servers and stops them in reverse order |
 | Worker lifecycle | Runs application-owned workers with signal-driven context cancellation |
-| gRPC runtime | Provides a standard `google.golang.org/grpc` server on `:8000` |
+| gRPC runtime | Provides a standard `google.golang.org/grpc` server on `:9000` |
+| Dependency wiring | Uses generated module registration with Fx at the composition boundary |
+| HTTP runtime | Optionally serves an application-owned `net/http` handler on `:8080` |
 | Structured logging | Uses Zap with a runtime-adjustable log level |
 | Diagnostics | Serves pprof and log-level management on a loopback listener |
 | Data-store setup | Configures GORM connections for PostgreSQL, MySQL, and SQLite |
@@ -159,6 +162,7 @@ This creates intentionally minimal package boundaries:
 
 ```text
 internal/invoice/
+├── module.go
 ├── application/service.go
 └── transport/grpc/handler.go
 
@@ -167,7 +171,10 @@ migrations/
 └── <timestamp>_invoice.down.sql
 ```
 
-The Go files provide only empty `Service`/`Handler` types and constructors.
+The Go files provide only empty `Service`/`Handler` types, constructors, and a
+predictable `Module` registration entry point. Macro updates the generated
+`internal/modules/modules.go` registry, so `cmd/service/main.go` does not need
+manual edits when another module is added.
 The migrations contain comments only. Macro does not infer domain models,
 repository methods, schemas, or RPC behavior from a module name.
 
@@ -286,7 +293,8 @@ func main() {
 | Default | Value |
 | --- | --- |
 | Logger | Zap at `info` level |
-| gRPC address | `:8000` |
+| HTTP | Disabled; `:8080` when enabled |
+| gRPC address | `:9000` |
 | Diagnostics address | `127.0.0.1:6060` |
 | Shutdown timeout | 10 seconds |
 | Signals | `SIGINT` and `SIGTERM` |
@@ -303,6 +311,18 @@ make proto
 
 Workers and jobs do not receive protobuf or Buf files by default.
 
+### v0.3 scope
+
+Macro v0.3 provides generated Fx module registration, HTTP/gRPC transport
+selection, gRPC health, optional reflection, request logging, panic recovery,
+and `bufconn` test coverage. Domain and application code remain ordinary Go.
+
+PostgreSQL Testcontainers scaffolding, grpc-gateway generation, metrics
+serving, and OpenTelemetry exporters are intentionally deferred until their
+CLI configuration and generated contracts can be delivered end to end. Macro
+does not start a telemetry collector; the manifest reserves the conventional
+OTLP gRPC endpoint `localhost:4317` while telemetry is disabled by default.
+
 Register generated handlers before calling `Run`:
 
 ```go
@@ -311,7 +331,7 @@ billingv1.RegisterBillingServiceServer(service.GRPC(), billingHandler)
 return service.Run()
 ```
 
-The default address is `:8000`. Override it when necessary:
+The default address is `:9000`. Override it when necessary:
 
 ```go
 service := macro.NewService("billing", macro.GRPCAddress(":9000"))
@@ -326,7 +346,11 @@ introduce a proprietary RPC abstraction.
 
 | Option | Purpose |
 | --- | --- |
-| `macro.GRPCAddress(address)` | Override the default `:8000` listener |
+| `macro.GRPCAddress(address)` | Override the default `:9000` listener |
+| `macro.WithHTTP(handler)` | Enable HTTP with an application-owned `net/http` handler |
+| `macro.HTTPAddress(address)` | Override the default HTTP `:8080` listener |
+| `macro.WithModules(modules...)` | Register generated dependency-wiring modules |
+| `macro.WithGRPCReflection()` | Enable standard gRPC server reflection |
 | `macro.DebugAddress(address)` | Override the default diagnostics listener |
 | `macro.ShutdownTimeout(duration)` | Set the service graceful-shutdown deadline |
 | `macro.WithLogger(logger)` | Replace the default Zap logger |
@@ -398,5 +422,4 @@ Build the CLI locally:
 go build ./cmd/macro
 ```
 
-GoReleaser publishes native CLI archives when a `v*` tag is pushed. The first
-release line starts at `v0.1.0`.
+GoReleaser publishes native CLI archives when a `v*` tag is pushed.

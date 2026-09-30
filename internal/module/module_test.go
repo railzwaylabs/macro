@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,9 +28,11 @@ func TestAddCreatesMinimalModuleAndMigrations(t *testing.T) {
 	handler := parseGoFile(t, handlerPath)
 	assertDeclarations(t, service, "Service", "NewService")
 	assertDeclarations(t, handler, "Handler", "NewHandler")
+	modulePath := filepath.Join(generated.Directory, "module.go")
+	moduleFile := parseGoFile(t, modulePath)
+	assertDeclarations(t, moduleFile, "Module")
 
 	for _, absent := range []string{
-		filepath.Join(generated.Directory, "module.go"),
 		filepath.Join(generated.Directory, "domain", "domain.go"),
 		filepath.Join(generated.Directory, "infrastructure", "infrastructure.go"),
 	} {
@@ -56,7 +59,7 @@ func TestAddCreatesMinimalModuleAndMigrations(t *testing.T) {
 	}
 
 	forbidden := []string{"Repository", "FindByID", "Create(", "Update(", "Delete(", "List("}
-	for _, path := range []string{servicePath, handlerPath} {
+	for _, path := range []string{servicePath, handlerPath, modulePath} {
 		contents, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -76,6 +79,59 @@ func TestAddRejectsDuplicate(t *testing.T) {
 	}
 	if _, err := Add(directory, "invoice"); err == nil {
 		t.Fatal("duplicate Add() error = nil")
+	}
+}
+
+func TestAddRefusesDeveloperOwnedRegistry(t *testing.T) {
+	directory := createProject(t)
+	registry := filepath.Join(directory, "internal", "modules", "modules.go")
+	const developerSource = "package modules\n\n// developer owned\n"
+	if err := os.WriteFile(registry, []byte(developerSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Add(directory, "invoice"); err == nil || !strings.Contains(err.Error(), "developer-owned") {
+		t.Fatalf("Add() error = %v", err)
+	}
+	contents, err := os.ReadFile(registry)
+	if err != nil || string(contents) != developerSource {
+		t.Fatalf("registry was overwritten: %q, %v", contents, err)
+	}
+}
+
+func TestAddUpdatesDeterministicRegistryAndGeneratedProjectCompiles(t *testing.T) {
+	directory := createProject(t)
+	if _, err := Add(directory, "product"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Add(directory, "category"); err != nil {
+		t.Fatal(err)
+	}
+	registryPath := filepath.Join(directory, "internal", "modules", "modules.go")
+	contents, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := string(contents)
+	if !strings.Contains(registry, "category.Module") || !strings.Contains(registry, "product.Module") || strings.Index(registry, "category.Module") > strings.Index(registry, "product.Module") {
+		t.Fatalf("registry is not complete and deterministic:\n%s", registry)
+	}
+	macroRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGo(t, directory, "mod", "edit", "-replace=github.com/railzwaylabs/macro="+macroRoot)
+	runGo(t, directory, "mod", "tidy")
+	runGo(t, directory, "test", "./...")
+}
+
+func runGo(t *testing.T, directory string, arguments ...string) {
+	t.Helper()
+	command := exec.Command("go", arguments...)
+	command.Dir = directory
+	command.Env = append(os.Environ(), "GOWORK=off")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go %s: %v\n%s", strings.Join(arguments, " "), err, output)
 	}
 }
 
@@ -106,6 +162,11 @@ func assertDeclarations(t *testing.T, file *ast.File, names ...string) {
 			for _, spec := range value.Specs {
 				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
 					found[typeSpec.Name.Name] = true
+				}
+				if valueSpec, ok := spec.(*ast.ValueSpec); ok {
+					for _, identifier := range valueSpec.Names {
+						found[identifier.Name] = true
+					}
 				}
 			}
 		case *ast.FuncDecl:

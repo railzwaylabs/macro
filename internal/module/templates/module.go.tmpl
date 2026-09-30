@@ -1,0 +1,18 @@
+package {{ .PackageName }}
+
+import (
+	"go.uber.org/fx"
+
+	"github.com/railzwaylabs/macro"
+	"{{ .ModulePath }}/internal/{{ .Name }}/application"
+	transportgrpc "{{ .ModulePath }}/internal/{{ .Name }}/transport/grpc"
+)
+
+var Module = macro.NewModule(
+	{{ printf "%q" .Name }},
+	fx.Provide(
+		application.NewService,
+		transportgrpc.NewHandler,
+	),
+	fx.Invoke(func(*transportgrpc.Handler) {}),
+)

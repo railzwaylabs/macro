@@ -36,14 +36,35 @@ type Manifest struct {
 	Runtime    Runtime           `yaml:"runtime"`
 	Modules    map[string]Module `yaml:"modules"`
 	Deployment Deployment        `yaml:"deployment"`
+	Telemetry  Telemetry         `yaml:"telemetry"`
 }
 
 // Module reserves a typed manifest value for future module configuration.
 type Module struct{}
 
 type Runtime struct {
-	GRPCPort  *int `yaml:"grpc_port,omitempty"`
-	DebugPort int  `yaml:"debug_port"`
+	HTTP    Listener `yaml:"http"`
+	GRPC    Listener `yaml:"grpc"`
+	Debug   Debug    `yaml:"debug"`
+	Metrics Listener `yaml:"metrics"`
+}
+
+type Listener struct {
+	Enabled bool `yaml:"enabled"`
+	Port    int  `yaml:"port"`
+}
+
+type Debug struct {
+	Enabled bool   `yaml:"enabled"`
+	Host    string `yaml:"host"`
+	Port    int    `yaml:"port"`
+}
+
+type Telemetry struct {
+	Enabled  bool   `yaml:"enabled"`
+	Exporter string `yaml:"exporter"`
+	Protocol string `yaml:"protocol"`
+	Endpoint string `yaml:"endpoint"`
 }
 
 type Deployment struct {
@@ -57,18 +78,18 @@ func NewManifest(name string, kind Type) Manifest {
 		Name: name,
 		Type: kind,
 		Runtime: Runtime{
-			DebugPort: 6060,
+			HTTP:    Listener{Enabled: false, Port: 8080},
+			GRPC:    Listener{Enabled: kind == TypeService, Port: 9000},
+			Debug:   Debug{Enabled: true, Host: "127.0.0.1", Port: 6060},
+			Metrics: Listener{Enabled: true, Port: 9090},
 		},
-		Modules: map[string]Module{},
+		Telemetry: Telemetry{Enabled: false, Exporter: "otlp", Protocol: "grpc", Endpoint: "localhost:4317"},
+		Modules:   map[string]Module{},
 		Deployment: Deployment{
 			Docker:     true,
 			Kubernetes: false,
 			Nomad:      false,
 		},
-	}
-	if kind == TypeService {
-		port := 8000
-		manifest.Runtime.GRPCPort = &port
 	}
 	return manifest
 }

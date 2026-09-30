@@ -42,7 +42,7 @@ func TestAddModuleCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(handler), "type Handler struct{}") || !strings.Contains(string(handler), "func NewHandler() *Handler") {
+	if !strings.Contains(string(handler), "type Handler struct") || !strings.Contains(string(handler), "func NewHandler(service *application.Service) *Handler") {
 		t.Fatalf("handler.go = %q", handler)
 	}
 	migrations, err := filepath.Glob(filepath.Join(generated.Directory, "migrations", "*_invoice_processing.*.sql"))

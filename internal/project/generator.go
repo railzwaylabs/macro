@@ -198,6 +198,7 @@ func templatesFor(kind Type, data TemplateData) []fileTemplate {
 	case TypeService:
 		serviceFiles := []fileTemplate{
 			{source: "templates/service/main.go.tmpl", target: filepath.Join("cmd", "service", "main.go")},
+			{source: "templates/service/modules.go.tmpl", target: filepath.Join("internal", "modules", "modules.go")},
 			{source: "templates/service/Makefile.tmpl", target: "Makefile"},
 			{source: "templates/service/buf.yaml.tmpl", target: "buf.yaml"},
 			{source: "templates/service/buf.gen.yaml.tmpl", target: "buf.gen.yaml"},
